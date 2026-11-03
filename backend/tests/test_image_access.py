@@ -23,7 +23,7 @@ from tests.conftest import (
     _create_activated_user,
 )
 
-from kurisuassistant.version import WIRE_PROTOCOL
+from amadeus.version import WIRE_PROTOCOL
 
 pytestmark = pytest.mark.db
 
@@ -175,7 +175,7 @@ class TestLegacyFlatStore:
         """Write straight into the flat store, the way the old code did."""
         import uuid as uuid_mod
 
-        from kurisuassistant.utils.images import IMAGES_DIR
+        from amadeus.utils.images import IMAGES_DIR
 
         image_uuid = str(uuid_mod.uuid4())
         cv2.imwrite(
@@ -192,8 +192,8 @@ class TestLegacyFlatStore:
         exactly what that route now refuses, and this is modelling data that was
         already on disk before it started refusing.
         """
-        from kurisuassistant.db.models import Persona
-        from kurisuassistant.db.session import get_session
+        from amadeus.db.models import Persona
+        from amadeus.db.session import get_session
 
         with get_session() as session:
             persona = session.query(Persona).filter(Persona.id == persona_id).one()

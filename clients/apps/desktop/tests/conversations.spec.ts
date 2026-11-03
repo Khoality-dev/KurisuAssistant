@@ -1,14 +1,14 @@
 /**
  * Getting back to a conversation, and leaving one (#312): the Conversations
  * page, `/resume`, `/clear` and `/delete`. Slash commands are the client's own
- * (`@kurisu/state` `commands.ts`) and never reach the server; what they change
+ * (`@amadeus/state` `commands.ts`) and never reach the server; what they change
  * on it is asserted on the mock.
  */
 import WebSocket from 'ws';
 import { test, expect } from './fixtures';
 import { Page } from '@playwright/test';
 import { MockBackend } from './mock/server';
-import { WIRE_PROTOCOL, WS_AUTH_SUBPROTOCOL, WS_WIRE_SUBPROTOCOL_PREFIX } from '@kurisu/models';
+import { WIRE_PROTOCOL, WS_AUTH_SUBPROTOCOL, WS_WIRE_SUBPROTOCOL_PREFIX } from '@amadeus/models';
 
 async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');

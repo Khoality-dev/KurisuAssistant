@@ -15,8 +15,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from kurisuassistant.calendar import repeat
-from kurisuassistant.calendar.entries import EntryError
+from amadeus.calendar import repeat
+from amadeus.calendar.entries import EntryError
 
 LA = ZoneInfo("America/Los_Angeles")
 

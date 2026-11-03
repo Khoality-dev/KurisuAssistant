@@ -5,8 +5,8 @@
  * GPU flags, so WebGL is never proven there (docs/testing.md, "Manual GPU
  * checklist"). A developer runs it with a real VRoid export:
  *
- *   KURISU_E2E_GPU=1 KURISU_VRM_FILE=/path/to/model.vrm \
- *   KURISU_E2E_ELECTRON_ARGS="--use-angle=swiftshader --enable-unsafe-swiftshader" \
+ *   AMADEUS_E2E_GPU=1 AMADEUS_VRM_FILE=/path/to/model.vrm \
+ *   AMADEUS_E2E_ELECTRON_ARGS="--use-angle=swiftshader --enable-unsafe-swiftshader" \
  *   npx playwright test tests/vrmRender.gpu.spec.ts
  *
  * The model goes into the mock's store and the window has to fetch it from
@@ -20,7 +20,7 @@ import { test, expect } from './fixtures';
 import fs from 'fs';
 import type { Page } from '@playwright/test';
 
-const MODEL_FILE = process.env.KURISU_VRM_FILE ?? '';
+const MODEL_FILE = process.env.AMADEUS_VRM_FILE ?? '';
 
 async function login(page: Page) {
   await page.getByLabel('Username').fill('tester');
@@ -32,7 +32,7 @@ async function login(page: Page) {
 }
 
 test.describe('VRM in the character window @gpu', () => {
-  test.skip(!MODEL_FILE || !fs.existsSync(MODEL_FILE), 'set KURISU_VRM_FILE to a .vrm exported from VRoid Studio');
+  test.skip(!MODEL_FILE || !fs.existsSync(MODEL_FILE), 'set AMADEUS_VRM_FILE to a .vrm exported from VRoid Studio');
 
   test('loads the model and draws a frame that is not one flat colour @gpu', async ({ page, electronApp, mock }) => {
     const bytes = fs.readFileSync(MODEL_FILE);

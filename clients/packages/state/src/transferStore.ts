@@ -1,15 +1,15 @@
 import { create } from 'zustand';
-import { apiClient } from '@kurisu/api';
-import { config } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
+import { config } from '@amadeus/api';
 import {
   basenameOf,
   dirnameOf,
   driveNodeId,
   joinPath,
   rememberNode,
-} from '@kurisu/api';
-import type { DriveNode } from '@kurisu/models';
-import { resolveBridge } from '@kurisu/platform';
+} from '@amadeus/api';
+import type { DriveNode } from '@amadeus/models';
+import { resolveBridge } from '@amadeus/platform';
 
 /**
  * Uploads and downloads, and the tray that shows them.
@@ -30,7 +30,7 @@ export interface Transfer {
   id: string;
   direction: TransferDirection;
   name: string;
-  /** Where it is going, in words: "Kurisu Drive / Reports", "Downloads". */
+  /** Where it is going, in words: "Amadeus Drive / Reports", "Downloads". */
   note: string;
   bytes: number | null;
   transferred: number;
@@ -67,10 +67,10 @@ function nextId(): string {
   return `t${sequence}`;
 }
 
-/** "Kurisu Drive" for the root, "Kurisu Drive / Reports" for a folder in it. */
+/** "Amadeus Drive" for the root, "Amadeus Drive / Reports" for a folder in it. */
 function describeFolder(path: string): string {
   const label = basenameOf(path);
-  return label === 'Kurisu Drive' ? label : `Kurisu Drive / ${label}`;
+  return label === 'Amadeus Drive' ? label : `Amadeus Drive / ${label}`;
 }
 
 /**

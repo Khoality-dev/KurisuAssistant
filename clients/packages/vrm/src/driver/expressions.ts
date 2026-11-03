@@ -21,8 +21,8 @@
  * model author's choice that this face does not blink, which stands. Pure:
  * the model's table is read once at load and passed in.
  */
-import type { EmotionCue, VrmEmotion, VrmEmotionSettings } from '@kurisu/models';
-import { VRM_EMOTIONS } from '@kurisu/models';
+import type { EmotionCue, VrmEmotion, VrmEmotionSettings } from '@amadeus/models';
+import { VRM_EMOTIONS } from '@amadeus/models';
 
 export type OverrideMode = 'none' | 'block' | 'blend';
 

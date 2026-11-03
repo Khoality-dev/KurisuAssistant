@@ -4,7 +4,7 @@
  * because Android's build and release have no JavaScript toolchain. CI
  * rebuilds it and fails on any difference (`desktop-test.yml`).
  *
- * `npm run build:page -w @kurisu/vrm` from `clients/`.
+ * `npm run build:page -w @amadeus/vrm` from `clients/`.
  *
  * The inlining is done here rather than by a plugin: after Vite has built one
  * script chunk (`inlineDynamicImports`) and one stylesheet (`cssCodeSplit:
@@ -43,7 +43,7 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function inlinePage(): Plugin {
   return {
-    name: 'kurisu-character-page',
+    name: 'amadeus-character-page',
     enforce: 'post',
     generateBundle(_options, bundle) {
       const html = bundle['index.html'];

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
 import {
   addDays,
   calendarWindow,
@@ -8,7 +8,7 @@ import {
   type CalendarEntryCreate,
   type CalendarEntryUpdate,
   type CalendarView,
-} from '@kurisu/models';
+} from '@amadeus/models';
 import { useLayoutStore } from './layoutStore';
 
 /**

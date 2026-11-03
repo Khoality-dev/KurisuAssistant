@@ -1,4 +1,4 @@
-"""The recognition routes over kurisuassistant/speech (#212).
+"""The recognition routes over amadeus/speech (#212).
 
 The engine is a published Whisper server: it takes an audio file, not the raw
 PCM the clients record, and serves the one model its container was started

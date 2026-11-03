@@ -1,4 +1,4 @@
-import type { ASRStatus, MicProblem } from '@kurisu/state';
+import type { ASRStatus, MicProblem } from '@amadeus/state';
 
 /**
  * What the voice bar says voice mode is doing (#345). One of these at a time,

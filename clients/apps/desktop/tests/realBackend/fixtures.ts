@@ -20,8 +20,8 @@ import { randomUUID } from 'crypto';
 import { Client } from 'pg';
 import { createAppPaths, launchApp, shutDown } from '../fixtures';
 
-const BACKEND_URL = process.env.KURISU_REAL_BACKEND_URL ?? '';
-const OLLAMA_URL = process.env.KURISU_MOCK_OLLAMA_URL ?? '';
+const BACKEND_URL = process.env.AMADEUS_REAL_BACKEND_URL ?? '';
+const OLLAMA_URL = process.env.AMADEUS_MOCK_OLLAMA_URL ?? '';
 
 /** The model the mock Ollama lists from the start. */
 export const MOCK_MODEL = 'mock-model:latest';
@@ -63,9 +63,9 @@ async function activate(username: string): Promise<void> {
   const db = new Client({
     host: process.env.POSTGRES_HOST ?? 'localhost',
     port: Number(process.env.POSTGRES_PORT ?? 5432),
-    user: process.env.POSTGRES_USER ?? 'kurisu',
-    password: process.env.POSTGRES_PASSWORD ?? 'kurisu',
-    database: process.env.POSTGRES_DB ?? 'kurisu',
+    user: process.env.POSTGRES_USER ?? 'amadeus',
+    password: process.env.POSTGRES_PASSWORD ?? 'amadeus',
+    database: process.env.POSTGRES_DB ?? 'amadeus',
   });
   await db.connect();
   try {
@@ -79,7 +79,7 @@ async function activate(username: string): Promise<void> {
 export const test = base.extend<Fixtures>({
   account: async ({}, use) => {
     if (!BACKEND_URL || !OLLAMA_URL) {
-      throw new Error('KURISU_REAL_BACKEND_URL and KURISU_MOCK_OLLAMA_URL must name a running backend and mock Ollama (docs/testing.md)');
+      throw new Error('AMADEUS_REAL_BACKEND_URL and AMADEUS_MOCK_OLLAMA_URL must name a running backend and mock Ollama (docs/testing.md)');
     }
     const username = `e2e-${randomUUID().slice(0, 8)}`;
     const password = `pw-${randomUUID()}`;

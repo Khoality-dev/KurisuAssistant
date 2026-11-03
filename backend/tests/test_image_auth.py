@@ -19,9 +19,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from kurisuassistant.core import deps
-from kurisuassistant.core.security import create_access_token, create_refresh_token
-from kurisuassistant.routers import images
+from amadeus.core import deps
+from amadeus.core.security import create_access_token, create_refresh_token
+from amadeus.routers import images
 
 
 class FakeUser:

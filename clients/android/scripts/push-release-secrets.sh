@@ -4,16 +4,16 @@
 # APKs with the same keystore your local builds use.
 #
 # Reads <repo-root>/.env (created from .env.template) for:
-#   KURISU_KEYSTORE             — path to the .jks file (relative to repo root)
-#   KURISU_KEYSTORE_PASSWORD
-#   KURISU_KEY_ALIAS
-#   KURISU_KEY_PASSWORD
+#   AMADEUS_KEYSTORE             — path to the .jks file (relative to repo root)
+#   AMADEUS_KEYSTORE_PASSWORD
+#   AMADEUS_KEY_ALIAS
+#   AMADEUS_KEY_PASSWORD
 #
 # Pushes these GitHub Actions secrets:
-#   KURISU_KEYSTORE_BASE64      — the .jks file, base64-encoded
-#   KURISU_KEYSTORE_PASSWORD
-#   KURISU_KEY_ALIAS
-#   KURISU_KEY_PASSWORD
+#   AMADEUS_KEYSTORE_BASE64      — the .jks file, base64-encoded
+#   AMADEUS_KEYSTORE_PASSWORD
+#   AMADEUS_KEY_ALIAS
+#   AMADEUS_KEY_PASSWORD
 #
 # Requirements:
 #   - GitHub CLI (gh) installed and authenticated (`gh auth status` should pass)
@@ -35,7 +35,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   exit 1
 fi
 
-# Source .env in a controlled way (only KURISU_* keys, no quotes-stripping needed if values are unquoted)
+# Source .env in a controlled way (only AMADEUS_* keys, no quotes-stripping needed if values are unquoted)
 # shellcheck disable=SC2046
 set -a
 # shellcheck disable=SC1090
@@ -51,13 +51,13 @@ require() {
     exit 1
   fi
 }
-require KURISU_KEYSTORE
-require KURISU_KEYSTORE_PASSWORD
-require KURISU_KEY_ALIAS
-require KURISU_KEY_PASSWORD
+require AMADEUS_KEYSTORE
+require AMADEUS_KEYSTORE_PASSWORD
+require AMADEUS_KEY_ALIAS
+require AMADEUS_KEY_PASSWORD
 
 # Resolve keystore path relative to repo root if not absolute
-KEYSTORE_PATH="${KURISU_KEYSTORE}"
+KEYSTORE_PATH="${AMADEUS_KEYSTORE}"
 if [[ "${KEYSTORE_PATH}" != /* ]]; then
   KEYSTORE_PATH="${REPO_ROOT}/${KEYSTORE_PATH}"
 fi
@@ -115,10 +115,10 @@ push_secret() {
   gh secret set "${name}" "${GH_REPO_ARGS[@]}" --body "${value}"
 }
 
-push_secret_file "KURISU_KEYSTORE_BASE64"     "${TMP_B64}"
-push_secret      "KURISU_KEYSTORE_PASSWORD"   "${KURISU_KEYSTORE_PASSWORD}"
-push_secret      "KURISU_KEY_ALIAS"           "${KURISU_KEY_ALIAS}"
-push_secret      "KURISU_KEY_PASSWORD"        "${KURISU_KEY_PASSWORD}"
+push_secret_file "AMADEUS_KEYSTORE_BASE64"     "${TMP_B64}"
+push_secret      "AMADEUS_KEYSTORE_PASSWORD"   "${AMADEUS_KEYSTORE_PASSWORD}"
+push_secret      "AMADEUS_KEY_ALIAS"           "${AMADEUS_KEY_ALIAS}"
+push_secret      "AMADEUS_KEY_PASSWORD"        "${AMADEUS_KEY_PASSWORD}"
 
 echo
 echo "Done. The release workflow can now sign APKs from these secrets."

@@ -1,0 +1,301 @@
+package com.amadeus.assistant.domain.chat
+
+import com.amadeus.assistant.data.model.*
+import com.amadeus.assistant.data.remote.websocket.WebSocketManager
+import com.amadeus.assistant.domain.tts.SegmentCue
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import javax.inject.Inject
+import javax.inject.Singleton
+
+data class QueuedMessage(
+    val text: String,
+    val images: List<String> = emptyList(),
+)
+
+data class StreamingState(
+    val isStreaming: Boolean = false,
+    val streamingMessages: List<Message> = emptyList(),
+    val streamError: String? = null,
+    /**
+     * The server's [ErrorEvent.code] for [streamError], so the banner can tell a
+     * fault from a setup step. Null for errors this client raises itself, which
+     * carry no code worth branching on.
+     */
+    val streamErrorCode: String? = null,
+    val typingAgentName: String? = null,
+    val tokenCount: Int? = null,
+    val queuedMessages: List<QueuedMessage> = emptyList(),
+)
+
+@Singleton
+class ChatStreamProcessor @Inject constructor(
+    private val wsManager: WebSocketManager,
+) {
+    private val _state = MutableStateFlow(StreamingState())
+    val state: StateFlow<StreamingState> = _state
+
+    // TTS callbacks
+    /** A sentence to speak, with the feelings inside it (#244, #246). */
+    var onSentenceBoundary: ((text: String, voice: String?, cues: List<SegmentCue>) -> Unit)? = null
+    var onStreamDone: (() -> Unit)? = null
+    var onConversationId: ((conversationId: Int) -> Unit)? = null
+    var onConnected: ((ConnectedEvent) -> Unit)? = null
+    var onContextInfo: ((ContextInfoEvent) -> Unit)? = null
+
+
+    private var currentRole: String? = null
+    private var currentContent = StringBuilder()
+    private var currentThinking = StringBuilder()
+    private var currentName: String? = null
+    private var currentVoice: String? = null
+    private var currentImages: MutableList<String> = mutableListOf()
+    private var ttsBuffer = StringBuilder()
+    private val cuePlanner = SpeechCuePlanner()
+
+    private var collectJob: Job? = null
+
+    /**
+     * Dispatcher used for collecting WebSocket events. Overridable for tests that need a
+     * deterministic scheduler (e.g. [kotlinx.coroutines.test.UnconfinedTestDispatcher]).
+     */
+    internal var collectDispatcher: CoroutineDispatcher = Dispatchers.Default
+
+    /** Start collecting WebSocket events in an internal scope. Idempotent. */
+    fun startCollecting() {
+        if (collectJob?.isActive == true) return
+        collectJob = CoroutineScope(SupervisorJob() + collectDispatcher).launch {
+            wsManager.events.collect { event ->
+                when (event) {
+                    is StreamChunkEvent -> handleChunk(event)
+                    is DoneEvent -> handleDone(event)
+                    is ErrorEvent -> handleError(event)
+                    is ConnectedEvent -> onConnected?.invoke(event)
+                    is ContextInfoEvent -> onContextInfo?.invoke(event)
+                    is ToolCallRequestEvent -> refuseClientTool(event)
+                    else -> { /* media, vision, etc. handled elsewhere */ }
+                }
+            }
+        }
+    }
+
+    /** Stop collecting WebSocket events. */
+    fun stopCollecting() {
+        collectJob?.cancel()
+        collectJob = null
+    }
+
+    fun startStreaming() {
+        resetStreamState()
+        _state.update { it.copy(isStreaming = true) }
+    }
+
+    /**
+     * The text of the turn in flight, so a refusal can hand it back to the composer.
+     *
+     * Recorded here rather than in a caller because this is the one call every send
+     * funnel makes: [ChatViewModel.doSend] (typed and queued messages) and
+     * `CoreService.sendMessage` (voice), which has no UI state of its own. Recording
+     * it in only one of them restores the wrong message after a send through the
+     * other (#149).
+     */
+    var lastUserMessageText: String = ""
+        private set
+
+    fun addUserMessage(text: String, images: List<String>? = null) {
+        val userMsg = Message(
+            role = "user",
+            content = text,
+            images = if (images.isNullOrEmpty()) null else images,
+        )
+        lastUserMessageText = text
+        _state.update { it.copy(streamingMessages = it.streamingMessages + userMsg) }
+    }
+
+    fun queueMessage(text: String, images: List<String> = emptyList()) {
+        _state.update { it.copy(
+            queuedMessages = it.queuedMessages + QueuedMessage(text, images),
+        ) }
+    }
+
+    fun dequeueMessage(): QueuedMessage? {
+        val queue = _state.value.queuedMessages
+        if (queue.isEmpty()) return null
+        val first = queue.first()
+        _state.update { it.copy(queuedMessages = it.queuedMessages.drop(1)) }
+        return first
+    }
+
+    fun cancelStream() {
+        wsManager.sendCancel()
+        flushTTSBuffer()
+        cuePlanner.reset()
+        _state.update { it.copy(isStreaming = false, typingAgentName = null, queuedMessages = emptyList()) }
+    }
+
+    /** Raise an error this client noticed itself. It carries no server code. */
+    fun setError(error: String) {
+        _state.update { it.copy(streamError = error, streamErrorCode = null, isStreaming = false) }
+    }
+
+    fun clearError() {
+        _state.update { it.copy(streamError = null, streamErrorCode = null) }
+    }
+
+    fun clearStreamingMessages() {
+        _state.update { it.copy(streamingMessages = emptyList()) }
+    }
+
+    private fun handleChunk(event: StreamChunkEvent) {
+        // Notify conversation ID on first chunk
+        onConversationId?.invoke(event.conversationId)
+
+        // Update token count if provided
+        if (event.tokenCount != null) {
+            _state.update { it.copy(tokenCount = event.tokenCount) }
+        }
+
+        val isNewBubble = event.role != currentRole || event.name != currentName
+
+        if (isNewBubble) {
+            // Flush TTS buffer when switching from assistant role
+            if (currentRole == "assistant") {
+                flushTTSBuffer()
+            }
+            // The backend's cue offsets restart with every round (#243).
+            cuePlanner.newRun()
+
+            currentRole = event.role
+            currentContent = StringBuilder(event.content)
+            currentThinking = StringBuilder(event.thinking ?: "")
+            currentName = event.name
+            currentVoice = event.voiceReference
+            currentImages = event.images?.toMutableList() ?: mutableListOf()
+
+            val newMsg = Message(
+                role = event.role,
+                content = event.content,
+                thinking = event.thinking,
+                name = event.name,
+                personaName = event.personaName,
+                voiceReference = event.voiceReference,
+                modelName = event.modelName,
+                providerType = event.providerType,
+                toolArgs = event.toolArgs,
+                toolStatus = event.toolStatus,
+                toolKind = event.toolKind,
+                durationMs = event.durationMs,
+                images = event.images,
+                personaId = event.personaId,
+            )
+            _state.update { it.copy(
+                streamingMessages = it.streamingMessages + newMsg,
+                typingAgentName = event.name,
+            ) }
+        } else {
+            // Accumulate into existing bubble
+            currentContent.append(event.content)
+            if (event.thinking != null) currentThinking.append(event.thinking)
+            if (event.voiceReference != null) currentVoice = event.voiceReference
+            if (!event.images.isNullOrEmpty()) currentImages.addAll(event.images)
+
+            _state.update { s ->
+                val msgs = s.streamingMessages.toMutableList()
+                if (msgs.isNotEmpty()) {
+                    val last = msgs.last()
+                    msgs[msgs.lastIndex] = last.copy(
+                        content = currentContent.toString(),
+                        thinking = currentThinking.toString().ifEmpty { null },
+                        images = currentImages.ifEmpty { null },
+                        toolStatus = event.toolStatus ?: last.toolStatus,
+                        toolKind = event.toolKind ?: last.toolKind,
+                        durationMs = event.durationMs ?: last.durationMs,
+                    )
+                }
+                s.copy(streamingMessages = msgs)
+            }
+        }
+
+        // TTS sentence splitting (only for assistant, not tool messages)
+        if (event.role == "assistant" && event.emotion != null && event.emotionAt != null) {
+            cuePlanner.cue(event.emotion, event.emotionAt)
+        }
+        if (event.role == "assistant" && event.content.isNotEmpty()) {
+            ttsBuffer.append(event.content)
+            var result = splitAtSentenceBoundary(ttsBuffer.toString())
+            while (result != null) {
+                val (sentence, remainder) = result
+                // Measured on the raw buffer: the offsets are into the text the backend counted.
+                speak(sentence, rawLength = ttsBuffer.length - remainder.length)
+                ttsBuffer = StringBuilder(remainder)
+                result = splitAtSentenceBoundary(ttsBuffer.toString())
+            }
+        }
+    }
+
+    private fun handleDone(event: DoneEvent) {
+        flushTTSBuffer()
+        cuePlanner.newRun()
+        _state.update { it.copy(isStreaming = false, typingAgentName = null) }
+        onStreamDone?.invoke()
+    }
+
+    /**
+     * Android registers no client tools, but the backend caches session handlers per user
+     * and reuses them across reconnects — a tool list registered by the desktop client can
+     * therefore route a call to this socket. Answering immediately turns a 120s-per-call
+     * stall (up to 10 tool rounds a turn) into an instant, honest failure.
+     *
+     * This is deliberately a refusal, not an execution path: the Android client does not
+     * run client-side tools.
+     */
+    private fun refuseClientTool(event: ToolCallRequestEvent) {
+        wsManager.sendToolCallResponse(
+            requestId = event.requestId,
+            content = "Client tools are not supported on the Android client",
+            isError = true,
+        )
+    }
+
+    private fun handleError(event: ErrorEvent) {
+        if (event.code == WsErrorCodes.CONNECTION_LOST) return // handled by reconnect
+        val refusedBeforeSending = event.code == WsErrorCodes.NO_MODEL_SELECTED
+        _state.update { it.copy(
+            streamError = event.error,
+            streamErrorCode = event.code,
+            isStreaming = false,
+            typingAgentName = null,
+            // Nothing was saved and nothing was sent, so the optimistic bubble is a
+            // lie — and the text is about to reappear in the composer, which would
+            // show the same message twice. Desktop drops its bubble here too.
+            streamingMessages = if (refusedBeforeSending) emptyList() else it.streamingMessages,
+            queuedMessages = if (refusedBeforeSending) emptyList() else it.queuedMessages,
+        ) }
+    }
+
+    private fun flushTTSBuffer() {
+        val remaining = ttsBuffer.toString().trim()
+        if (remaining.isNotEmpty()) {
+            speak(remaining, rawLength = ttsBuffer.length)
+        }
+        ttsBuffer = StringBuilder()
+    }
+
+    private fun speak(sentence: String, rawLength: Int) {
+        // A sentence narration swallows is not spoken; its feeling opens the next one.
+        val cues = cuePlanner.take(rawLength, spoken = stripNarration(sentence).isNotBlank())
+        onSentenceBoundary?.invoke(sentence, currentVoice, cues)
+    }
+
+    private fun resetStreamState() {
+        currentRole = null
+        currentContent = StringBuilder()
+        currentThinking = StringBuilder()
+        currentName = null
+        currentVoice = null
+        currentImages = mutableListOf()
+        ttsBuffer = StringBuilder()
+        cuePlanner.reset()
+        _state.update { StreamingState() }
+    }
+}

@@ -1,0 +1,152 @@
+package com.amadeus.assistant.data.local
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import com.amadeus.assistant.data.model.AsrLanguageModelEntry
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.json.Json
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "amadeus_prefs",
+    produceMigrations = { listOf(AlwaysListenRemoval, PersonaConversationsRemoval) },
+)
+
+@Singleton
+class PreferencesDataStore @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+    private val ds get() = context.dataStore
+
+    // Keys
+    private val KEY_REMEMBER_ME = booleanPreferencesKey(StorageKeys.REMEMBER_ME)
+    private val KEY_TTS_VOICE = stringPreferencesKey(StorageKeys.TTS_VOICE)
+    private val KEY_TTS_LANGUAGE = stringPreferencesKey(StorageKeys.TTS_LANGUAGE)
+    private val KEY_TTS_BACKEND = stringPreferencesKey(StorageKeys.TTS_BACKEND)
+    private val KEY_BACKEND_URL = stringPreferencesKey(StorageKeys.BACKEND_URL)
+    private val KEY_AUDIO_INPUT_DEVICE_TYPE = intPreferencesKey(StorageKeys.AUDIO_INPUT_DEVICE_TYPE)
+    private val KEY_ASR_LANGUAGE = stringPreferencesKey(StorageKeys.ASR_LANGUAGE)
+    private val KEY_VOICE_MODE = booleanPreferencesKey(StorageKeys.VOICE_MODE)
+
+    companion object {
+        const val DEFAULT_BACKEND_URL = "http://localhost:15597"
+    }
+
+    // Remember Me
+    suspend fun getRememberMe(): Boolean = ds.data.first()[KEY_REMEMBER_ME] ?: false
+    suspend fun setRememberMe(value: Boolean) { ds.edit { it[KEY_REMEMBER_ME] = value } }
+
+    // Backend URL
+    suspend fun getBackendUrl(): String = ds.data.first()[KEY_BACKEND_URL] ?: DEFAULT_BACKEND_URL
+    fun backendUrlFlow(): Flow<String> = ds.data.map { it[KEY_BACKEND_URL] ?: DEFAULT_BACKEND_URL }
+    suspend fun setBackendUrl(url: String) { ds.edit { it[KEY_BACKEND_URL] = url } }
+
+    // TTS
+    suspend fun getTTSVoice(): String? = ds.data.first()[KEY_TTS_VOICE]
+    suspend fun setTTSVoice(voice: String) { ds.edit { it[KEY_TTS_VOICE] = voice } }
+
+    suspend fun getTTSLanguage(): String? = ds.data.first()[KEY_TTS_LANGUAGE]
+    suspend fun setTTSLanguage(language: String) { ds.edit { it[KEY_TTS_LANGUAGE] = language } }
+
+    suspend fun getTTSBackend(): String? = ds.data.first()[KEY_TTS_BACKEND]
+    suspend fun setTTSBackend(backend: String) { ds.edit { it[KEY_TTS_BACKEND] = backend } }
+
+    // Audio Input Device Type (-1 = default/auto)
+    suspend fun getAudioInputDeviceType(): Int = ds.data.first()[KEY_AUDIO_INPUT_DEVICE_TYPE] ?: -1
+    suspend fun setAudioInputDeviceType(type: Int) { ds.edit { it[KEY_AUDIO_INPUT_DEVICE_TYPE] = type } }
+
+    // ASR Language (empty = auto-detect)
+    suspend fun getAsrLanguage(): String = ds.data.first()[KEY_ASR_LANGUAGE] ?: ""
+    suspend fun setAsrLanguage(language: String) { ds.edit { it[KEY_ASR_LANGUAGE] = language } }
+
+    // Voice mode (#341): the only time the mic listens. Off until turned on.
+    suspend fun getVoiceMode(): Boolean = ds.data.first()[KEY_VOICE_MODE] ?: false
+    suspend fun setVoiceMode(value: Boolean) { ds.edit { it[KEY_VOICE_MODE] = value } }
+
+    // Theme Mode ("light", "dark", "system")
+    private val KEY_THEME_MODE = stringPreferencesKey(StorageKeys.THEME_MODE)
+    suspend fun getThemeMode(): String = ds.data.first()[KEY_THEME_MODE] ?: "system"
+    fun themeModeFlow(): Flow<String> = ds.data.map { it[KEY_THEME_MODE] ?: "system" }
+    suspend fun setThemeMode(mode: String) { ds.edit { it[KEY_THEME_MODE] = mode } }
+
+    // TTS Auto-play
+    private val KEY_TTS_AUTO_PLAY_SETTING = booleanPreferencesKey(StorageKeys.TTS_AUTO_PLAY_SETTING)
+    suspend fun getTTSAutoPlay(): Boolean = ds.data.first()[KEY_TTS_AUTO_PLAY_SETTING] ?: true
+    suspend fun setTTSAutoPlay(enabled: Boolean) { ds.edit { it[KEY_TTS_AUTO_PLAY_SETTING] = enabled } }
+
+    // ASR mode ("fixed" | "routing")
+    private val KEY_ASR_MODE = stringPreferencesKey(StorageKeys.ASR_MODE)
+    suspend fun getAsrMode(): String = ds.data.first()[KEY_ASR_MODE] ?: "fixed"
+    suspend fun setAsrMode(mode: String) { ds.edit { it[KEY_ASR_MODE] = mode } }
+
+    // ASR fixed model (empty = server default)
+    private val KEY_ASR_FIXED_MODEL = stringPreferencesKey(StorageKeys.ASR_FIXED_MODEL)
+    suspend fun getAsrFixedModel(): String = ds.data.first()[KEY_ASR_FIXED_MODEL] ?: ""
+    suspend fun setAsrFixedModel(model: String) { ds.edit { it[KEY_ASR_FIXED_MODEL] = model } }
+
+    // ASR language → model map (JSON-encoded list)
+    private val KEY_ASR_MODEL_MAP = stringPreferencesKey(StorageKeys.ASR_MODEL_MAP)
+    suspend fun getAsrModelMap(): List<AsrLanguageModelEntry> {
+        val json = ds.data.first()[KEY_ASR_MODEL_MAP] ?: return emptyList()
+        return try {
+            Json.decodeFromString(ListSerializer(AsrLanguageModelEntry.serializer()), json)
+        } catch (_: Exception) { emptyList() }
+    }
+    suspend fun setAsrModelMap(entries: List<AsrLanguageModelEntry>) {
+        val json = Json.encodeToString(ListSerializer(AsrLanguageModelEntry.serializer()), entries)
+        ds.edit { it[KEY_ASR_MODEL_MAP] = json }
+    }
+
+    // Speaker output device id (empty = system default)
+    private val KEY_SPEAKER_DEVICE_ID = stringPreferencesKey(StorageKeys.SPEAKER_DEVICE_ID)
+    suspend fun getSpeakerDeviceId(): String = ds.data.first()[KEY_SPEAKER_DEVICE_ID] ?: ""
+    suspend fun setSpeakerDeviceId(id: String) { ds.edit { it[KEY_SPEAKER_DEVICE_ID] = id } }
+
+    // Auto-update on launch (when a newer GitHub release is found, download + fire install)
+    private val KEY_AUTO_UPDATE = booleanPreferencesKey(StorageKeys.AUTO_UPDATE)
+    suspend fun getAutoUpdate(): Boolean = ds.data.first()[KEY_AUTO_UPDATE] ?: true
+    suspend fun setAutoUpdate(enabled: Boolean) { ds.edit { it[KEY_AUTO_UPDATE] = enabled } }
+
+    // Notifications on this phone (#353). On until the user turns them off.
+    private val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey(StorageKeys.NOTIFICATIONS_ENABLED)
+    suspend fun getNotificationsEnabled(): Boolean = ds.data.first()[KEY_NOTIFICATIONS_ENABLED] ?: true
+    suspend fun setNotificationsEnabled(enabled: Boolean) { ds.edit { it[KEY_NOTIFICATIONS_ENABLED] = enabled } }
+
+    // Which notifications this phone has posted, per server (#353) — the one
+    // piece of notification state a device keeps, so a reconnect posts each
+    // unread one once and cancels what was read elsewhere. Bounded, newest kept.
+    private val KEY_NOTIFICATIONS_SHOWN = stringPreferencesKey(StorageKeys.NOTIFICATIONS_SHOWN)
+    private fun shownMap(raw: String?): Map<String, List<Int>> = try {
+        Json.decodeFromString(MapSerializer(String.serializer(), ListSerializer(Int.serializer())), raw ?: "{}")
+    } catch (_: Exception) { emptyMap() }
+    suspend fun getShownNotifications(server: String): Set<Int> =
+        shownMap(ds.data.first()[KEY_NOTIFICATIONS_SHOWN])[server].orEmpty().toSet()
+    suspend fun setShownNotifications(server: String, ids: Set<Int>) {
+        ds.edit {
+            val updated = shownMap(it[KEY_NOTIFICATIONS_SHOWN]) + (server to ids.sorted().takeLast(200))
+            it[KEY_NOTIFICATIONS_SHOWN] =
+                Json.encodeToString(MapSerializer(String.serializer(), ListSerializer(Int.serializer())), updated)
+        }
+    }
+
+    // The FCM token registered with the server for push (#353). Null when this
+    // phone is not registered — notifications off, signed out, or no Firebase.
+    private val KEY_PUSH_TOKEN = stringPreferencesKey(StorageKeys.PUSH_TOKEN)
+    suspend fun getRegisteredPushToken(): String? = ds.data.first()[KEY_PUSH_TOKEN]
+    suspend fun setRegisteredPushToken(token: String?) {
+        ds.edit { if (token == null) it.remove(KEY_PUSH_TOKEN) else it[KEY_PUSH_TOKEN] = token }
+    }
+}

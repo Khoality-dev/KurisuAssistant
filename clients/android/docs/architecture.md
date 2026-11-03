@@ -9,8 +9,8 @@ map.
 ## Package layout
 
 ```
-com.kurisu.assistant/
-├── KurisuApplication.kt         -- @HiltAndroidApp
+com.amadeus.assistant/
+├── AmadeusApplication.kt         -- @HiltAndroidApp
 ├── MainActivity.kt              -- Single activity, NavHost
 ├── data/
 │   ├── local/                   -- DataStore, EncryptedPrefs, StorageKeys, DriveFiles (a picked file, the drive cache, a saved document — #175)
@@ -36,7 +36,7 @@ com.kurisu.assistant/
 │   ├── tasks/                   -- Tasks (#352): grouped list (waiting for approval first; finished one-offs not listed) with filter chips, a task opened in place with its runs, approve/deny, pause/resume/stop/edit/delete; refetches on `tasks_changed`. `TaskApprovalsViewModel` feeds the chat's approval sheet for a run's conversation
 │   ├── chat/                    -- Chat screen, message bubble, tool rail, task card (#352), input with the permission mode chip and sheet (#360), markdown (no nav args)
 │   ├── calendar/                -- Calendar screen + ViewModel, the chat's calendar card (#282); a reminder's Repeats in the editor (#355)
-│   ├── drive/                   -- Kurisu Drive (#175): a folder at a time, the storage card, row menus, the + menu, the transfer strip and sheet, Move sheet
+│   ├── drive/                   -- Amadeus Drive (#175): a folder at a time, the storage card, row menus, the + menu, the transfer strip and sheet, Move sheet
 │   ├── assistant/               -- The one assistant (wake word, thinking, memory, tools)
 │   ├── personas/                -- Persona CRUD (name, prompt, voice, avatar) + ViewModel
 │   ├── onboarding/              -- A new account's model, before the first chat (#342, #376): screen, ViewModel, the gate's ViewModel
@@ -47,7 +47,7 @@ com.kurisu.assistant/
 │   ├── version/                 -- Wire-protocol gate: UpdateRequiredScreen + UpdateRequiredCopy (which side to update)
 │   └── character/               -- Character canvas, video player, screen + ViewModel; vrm/: the page's WebView and bridge
 ├── service/                     -- CoreService (foreground service), CoreState (shared singleton), VoiceInteractionManager,
-│                                   KurisuMessagingService (FCM data messages with the app closed, #353), ForegroundNotifications
+│                                   AmadeusMessagingService (FCM data messages with the app closed, #353), ForegroundNotifications
 │                                   (the socket while open), NotificationPoster, tap intents and NotificationNavigation
 └── di/                          -- Hilt modules (App, Network)
 ```

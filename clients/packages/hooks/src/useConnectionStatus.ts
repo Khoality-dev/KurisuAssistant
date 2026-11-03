@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { wsManager, ConnectionStatus } from '@kurisu/api';
+import { wsManager, ConnectionStatus } from '@amadeus/api';
 
 export function useConnectionStatus(): ConnectionStatus {
   const [status, setStatus] = useState<ConnectionStatus>(wsManager.connectionStatus);

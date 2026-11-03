@@ -20,7 +20,7 @@ import {
   WS_AUTH_SUBPROTOCOL,
   WS_WIRE_SUBPROTOCOL_PREFIX,
   WS_WIRE_PROTOCOL_MISMATCH,
-} from '@kurisu/models';
+} from '@amadeus/models';
 
 let mock: MockBackend;
 
@@ -68,6 +68,29 @@ function connect(wireProtocol: number = WIRE_PROTOCOL): WebSocket {
     `${WS_WIRE_SUBPROTOCOL_PREFIX}${wireProtocol}`,
   ]);
 }
+
+function connectLegacy(wireProtocol: number = WIRE_PROTOCOL): WebSocket {
+  return new WebSocket(`${mock.url.replace('http:', 'ws:')}/ws/chat`, [
+    'kurisu.auth.bearer',
+    'test-token',
+    `kurisu.wire.${wireProtocol}`,
+  ]);
+}
+
+it('accepts and echoes the legacy auth and wire spellings', async () => {
+  const ws = connectLegacy();
+  await new Promise<void>((resolve, reject) => {
+    ws.once('open', () => {
+      expect(ws.protocol).toBe('kurisu.auth.bearer');
+      resolve();
+    });
+    ws.once('error', reject);
+  });
+  await new Promise<void>((resolve) => {
+    ws.once('close', resolve);
+    ws.close();
+  });
+});
 
 /** Send one chat_request and collect every event up to and including `done`. */
 async function chat(payload: Record<string, unknown>): Promise<any[]> {
@@ -181,7 +204,7 @@ describe('mock backend: the assistant and its personas', () => {
 
   // A persona is optional (#302): the assistant answers as itself without one.
   it('deletes any persona, the last included, and deleting the selected one leaves the assistant', async () => {
-    const second = mock.addPersona({ name: 'Amadeus' });
+    const second = mock.addPersona({ name: 'Mozart' });
     expect((await get('/assistant')).body.selected_persona_id).toBe(1);
 
     const deleted = await del('/personas/1');
@@ -203,7 +226,7 @@ describe('mock backend: the assistant and its personas', () => {
 
   it('does not select a new persona for the user', async () => {
     mock.setAssistantFields({ selected_persona_id: null });
-    const created = await post('/personas', { name: 'Amadeus' });
+    const created = await post('/personas', { name: 'Mozart' });
     expect(created.status).toBe(200);
     expect((await get('/assistant')).body.selected_persona_id).toBeNull();
   });
@@ -212,7 +235,7 @@ describe('mock backend: the assistant and its personas', () => {
     expect((await patch('/personas/1/enabled', { enabled: false })).status).toBe(200);
     expect((await get('/assistant')).body.selected_persona_id).toBeNull();
 
-    const second = mock.addPersona({ name: 'Amadeus' });
+    const second = mock.addPersona({ name: 'Mozart' });
     mock.setAssistantFields({ selected_persona_id: second.id });
     expect((await patch(`/personas/${second.id}`, { enabled: false })).status).toBe(200);
     expect((await get('/assistant')).body.selected_persona_id).toBeNull();
@@ -321,13 +344,13 @@ describe('mock backend: conversations', () => {
   });
 
   it('applies a switch to a conversation already under way', async () => {
-    const other = mock.addPersona({ name: 'Amadeus' });
+    const other = mock.addPersona({ name: 'Mozart' });
     const id = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk').conversation_id;
 
     expect((await patch('/assistant', { selected_persona_id: other.id })).status).toBe(200);
     const next = (await chat({ conversation_id: id })).find((e) => e.type === 'stream_chunk');
     expect(next.persona_id).toBe(other.id);
-    expect(next.persona_name).toBe('Amadeus');
+    expect(next.persona_name).toBe('Mozart');
 
     expect((await patch('/assistant', { selected_persona_id: null })).status).toBe(200);
     const last = (await chat({ conversation_id: id })).find((e) => e.type === 'stream_chunk');
@@ -335,7 +358,7 @@ describe('mock backend: conversations', () => {
   });
 
   it('ignores a persona named on the request, and a legacy agent_id', async () => {
-    const other = mock.addPersona({ name: 'Amadeus' });
+    const other = mock.addPersona({ name: 'Mozart' });
     const named = (await chat({ conversation_id: null, persona_id: other.id })).find((e) => e.type === 'stream_chunk');
     expect(named.persona_id).toBe(1);
     const legacy = (await chat({ conversation_id: null, agent_id: other.id })).find((e) => e.type === 'stream_chunk');
@@ -346,7 +369,7 @@ describe('mock backend: conversations', () => {
   it('answers as the assistant when the persona in use is not enabled', async () => {
     // The routes clear the selection on disable; a selection that slipped past
     // that is the backend's race, and it answers as the assistant.
-    const other = mock.addPersona({ name: 'Amadeus', enabled: false });
+    const other = mock.addPersona({ name: 'Mozart', enabled: false });
     mock.setAssistantFields({ selected_persona_id: other.id });
     const chunk = (await chat({ conversation_id: null })).find((e) => e.type === 'stream_chunk');
     expect(chunk.persona_id).toBeNull();
@@ -418,12 +441,12 @@ describe('mock backend: seeded conversations', () => {
     seeded = new MockBackend({
       personas: [
         { id: 1, name: 'Kurisu' },
-        { id: 2, name: 'Amadeus' },
+        { id: 2, name: 'Mozart' },
       ],
       conversations: [
         {
           title: 'Older, and answered by the second persona',
-          persona: 'Amadeus',
+          persona: 'Mozart',
           agoMinutes: 3 * 24 * 60,
           messages: [
             { role: 'user', content: 'Ask something' },
@@ -630,21 +653,21 @@ describe('mock backend: streaming', () => {
   });
 
   it('scripts a persona handoff by changing persona_id mid-stream', async () => {
-    const other = mock.addPersona({ name: 'Amadeus' });
+    const other = mock.addPersona({ name: 'Mozart' });
     mock.setStream({
       chunks: [
         { content: 'Kurisu here. ', role: 'assistant' },
-        { content: 'Amadeus here.', role: 'assistant', personaId: other.id },
+        { content: 'Mozart here.', role: 'assistant', personaId: other.id },
       ],
     });
     const chunks = (await chat({ conversation_id: null })).filter((e) => e.type === 'stream_chunk');
     expect(chunks.map((c) => c.persona_id)).toEqual([1, other.id]);
-    expect(chunks.map((c) => c.persona_name)).toEqual(['Kurisu', 'Amadeus']);
+    expect(chunks.map((c) => c.persona_name)).toEqual(['Kurisu', 'Mozart']);
 
     // And the two speakers are stored as two messages, not one run-together blob.
     const { body } = await get(`/conversations/${chunks[0].conversation_id}`);
     const assistantMessages = body.messages.filter((m: any) => m.role === 'assistant');
-    expect(assistantMessages.map((m: any) => m.content)).toEqual(['Kurisu here. ', 'Amadeus here.']);
+    expect(assistantMessages.map((m: any) => m.content)).toEqual(['Kurisu here. ', 'Mozart here.']);
   });
 
   it('carries emotion cues on assistant chunks and keeps them on the stored message', async () => {
@@ -1055,7 +1078,7 @@ describe('mock backend: handshake', () => {
   });
 });
 
-describe('Kurisu Drive', () => {
+describe('Amadeus Drive', () => {
   /**
    * The mock is the only description of the drive the Playwright suite sees, so
    * a wrong shape here does not fail loudly — it makes the specs agree with a
@@ -1313,7 +1336,7 @@ describe('the 3D character store (#236)', () => {
     store = new MockBackend({
       personas: [
         { id: 1, name: 'Kurisu', character_config: VRM_CHARACTER_WITH_MODEL },
-        { id: 2, name: 'Amadeus', character_config: ONE_POSE_CHARACTER },
+        { id: 2, name: 'Mozart', character_config: ONE_POSE_CHARACTER },
       ],
     });
     await store.start();
@@ -1487,7 +1510,7 @@ describe('a persona exported with its character, and imported back (#248)', () =
     store = new MockBackend({
       personas: [
         { id: 1, name: 'Kurisu', description: 'lab member', character_config: VRM_CHARACTER_WITH_MODEL },
-        { id: 2, name: 'Amadeus' },
+        { id: 2, name: 'Mozart' },
       ],
     });
     await store.start();

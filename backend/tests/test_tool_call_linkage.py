@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, AgentContext
-from kurisuassistant.agents.main import MainAgent
-from kurisuassistant.tools import ToolRegistry
+from amadeus.agents.base import AssistantConfig, PersonaConfig, AgentContext
+from amadeus.agents.main import MainAgent
+from amadeus.tools import ToolRegistry
 
 
 def validate_openai_shape(messages):
@@ -180,7 +180,7 @@ class TestAgentEmitsLinkage:
         ctx.handler = None
         ctx.permission_mode = "full"
 
-        with patch("kurisuassistant.models.llm.create_llm_provider", return_value=fake_provider(turns)), \
+        with patch("amadeus.models.llm.create_llm_provider", return_value=fake_provider(turns)), \
              patch.object(MainAgent, "execute_tool", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = MagicMock(content="31C and humid", status="success", images=[])
             return [c async for c in a.process([{"role": "user", "content": "weather?"}], ctx)]
@@ -213,7 +213,7 @@ class TestAgentEmitsLinkage:
         ctx.handler = None
         ctx.permission_mode = "full"
 
-        with patch("kurisuassistant.models.llm.create_llm_provider", return_value=fake_provider(turns)), \
+        with patch("amadeus.models.llm.create_llm_provider", return_value=fake_provider(turns)), \
              patch.object(MainAgent, "execute_tool", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = MagicMock(content="ok", status="success", images=[])
             chunks = [c async for c in a.process([{"role": "user", "content": "weather?"}], ctx)]

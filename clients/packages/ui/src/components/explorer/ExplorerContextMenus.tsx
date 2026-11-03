@@ -11,9 +11,9 @@ import {
   ListItemText,
   Typography,
 } from '@mui/material';
-import type { FileEntry } from '@kurisu/models';
-import { isDrivePath } from '@kurisu/api';
-import { resolveBridge } from '@kurisu/platform';
+import type { FileEntry } from '@amadeus/models';
+import { isDrivePath } from '@amadeus/api';
+import { resolveBridge } from '@amadeus/platform';
 
 interface ExplorerContextMenusProps {
   // File context menu
@@ -136,8 +136,8 @@ export const ExplorerContextMenus: React.FC<ExplorerContextMenusProps> = ({
             >
               <ListItemText>
                 {fileTargets().length > 1
-                  ? `Upload ${fileTargets().length} files to Kurisu Drive`
-                  : 'Upload to Kurisu Drive'}
+                  ? `Upload ${fileTargets().length} files to Amadeus Drive`
+                  : 'Upload to Amadeus Drive'}
               </ListItemText>
             </MenuItem>
           )

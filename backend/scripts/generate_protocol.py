@@ -20,8 +20,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from kurisuassistant.version import WIRE_PROTOCOL
-from kurisuassistant.websocket.events import (
+from amadeus.version import WIRE_PROTOCOL
+from amadeus.websocket.events import (
     BINARY_EVENTS,
     CLIENT_TO_SERVER,
     SERVER_TO_CLIENT,

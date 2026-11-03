@@ -10,7 +10,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
 import {
   ONBOARDING_PROVIDERS,
   connectProvider,
@@ -18,14 +18,14 @@ import {
   skipOnboarding,
   type OnboardingModel,
   type OnboardingProvider,
-} from '@kurisu/state';
+} from '@amadeus/state';
 
 /**
  * A new account's onboarding (#342): the model, and only the model (#376) —
  * once the assistant has one it can be asked for the rest. Shown by
  * `OnboardingGate` before the main layout mounts, so the chat opens on the
  * model chosen. The rules — what connecting saves, what finishing writes — are
- * `@kurisu/state`'s `onboarding.ts`, which Android mirrors.
+ * `@amadeus/state`'s `onboarding.ts`, which Android mirrors.
  */
 export const OnboardingDialog: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   const [provider, setProvider] = useState<OnboardingProvider>('ollama');

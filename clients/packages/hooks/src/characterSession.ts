@@ -6,7 +6,7 @@
  * before the token would make every fetch a 401 that the compositor reads as
  * a missing file (#237). Pure, so the order is a test rather than a comment.
  */
-import type { CharacterSession, CharacterWindowAPI } from '@kurisu/platform';
+import type { CharacterSession, CharacterWindowAPI } from '@amadeus/platform';
 
 export function greetCharacterWindow(
   api: Pick<CharacterWindowAPI, 'sendSession'>,

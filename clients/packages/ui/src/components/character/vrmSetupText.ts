@@ -17,7 +17,7 @@ import {
   type VrmAssetRef,
   type VrmEmotion,
   type VrmSettings,
-} from '@kurisu/models';
+} from '@amadeus/models';
 
 /** Megabytes the way the file manager shows them: one decimal, powers of ten. */
 export function mb(bytes: number): string {

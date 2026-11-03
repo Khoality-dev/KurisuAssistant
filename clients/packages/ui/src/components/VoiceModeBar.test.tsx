@@ -8,7 +8,7 @@
 import { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { VoiceBarPhase } from '@kurisu/hooks';
+import type { VoiceBarPhase } from '@amadeus/hooks';
 import { VoiceModeBar } from './VoiceModeBar';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

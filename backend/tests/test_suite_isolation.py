@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from kurisuassistant.core import paths
+from amadeus.core import paths
 
 TESTS = Path(__file__).resolve().parent
 CHECKOUT_DATA = (paths.PROJECT_ROOT / "data").resolve()
@@ -36,10 +36,10 @@ class TestTheSuiteHasItsOwnDataDirectory:
     @pytest.mark.parametrize(
         "module, name",
         [
-            ("kurisuassistant.utils.images", "IMAGES_DIR"),
-            ("kurisuassistant.character.paths", "CHAR_ASSETS_DIR"),
-            ("kurisuassistant.utils.drive_storage", "DRIVE_DIR"),
-            ("kurisuassistant.routers.tts", "VOICE_STORAGE_DIR"),
+            ("amadeus.utils.images", "IMAGES_DIR"),
+            ("amadeus.character.paths", "CHAR_ASSETS_DIR"),
+            ("amadeus.utils.drive_storage", "DRIVE_DIR"),
+            ("amadeus.routers.tts", "VOICE_STORAGE_DIR"),
         ],
     )
     def test_every_store_follows_it(self, module, name):
@@ -54,8 +54,8 @@ class TestTheSuiteHasItsOwnDataDirectory:
     @pytest.mark.parametrize(
         "source",
         [
-            "kurisuassistant/models/face_recognition/insightface_provider.py",
-            "kurisuassistant/models/gesture_detection/mediapipe_provider.py",
+            "amadeus/models/face_recognition/insightface_provider.py",
+            "amadeus/models/gesture_detection/mediapipe_provider.py",
         ],
     )
     def test_no_store_is_relative_to_the_working_directory(self, source):
@@ -97,7 +97,7 @@ class TestTheAppsOwnScansStayOut:
         real model calls on conversations an earlier test had left idle, landing
         in whatever test ran next (#330); the tests that cover the scans run them
         by hand."""
-        from kurisuassistant.workers import service
+        from amadeus.workers import service
 
         assert service.SCAN_INTERVAL_SECONDS >= 10**6
         assert service.INDEX_SCAN_INTERVAL_SECONDS >= 10**6

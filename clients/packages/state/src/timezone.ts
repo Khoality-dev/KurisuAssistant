@@ -1,4 +1,4 @@
-import type { UserProfile } from '@kurisu/models';
+import type { UserProfile } from '@amadeus/models';
 
 /**
  * The account's time zone (#352): schedules are read in it, and the server has

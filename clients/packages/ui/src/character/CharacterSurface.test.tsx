@@ -12,15 +12,15 @@
 import { act, StrictMode } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CharacterDriver, DriverInput, ParsedCharacterConfig, PoseTree, VrmAssetRef, VrmSettings } from '@kurisu/models';
-import { publishSpeech, pushEmotion, pushGestures, resetCharacterFeed, setFaces, setThinking } from '@kurisu/state';
+import type { CharacterDriver, DriverInput, ParsedCharacterConfig, PoseTree, VrmAssetRef, VrmSettings } from '@amadeus/models';
+import { publishSpeech, pushEmotion, pushGestures, resetCharacterFeed, setFaces, setThinking } from '@amadeus/state';
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   fetchAuthedBytes: vi.fn(async () => new ArrayBuffer(0)),
 }));
 
-import { fetchAuthedBytes } from '@kurisu/api';
+import { fetchAuthedBytes } from '@amadeus/api';
 import { CharacterSurface, failureBody, SURFACE_TEXT, type VrmModule } from './CharacterSurface';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -242,7 +242,7 @@ const MODEL = {
   sha256: 'a'.repeat(64),
   bytes: 18_400_000,
   uploaded_at: '2026-09-21T00:00:00Z',
-  filename: 'kurisu_v2.vrm',
+  filename: 'amadeus_v2.vrm',
 } as VrmAssetRef;
 
 const vrmPersona = (model: VrmAssetRef | null = MODEL): ParsedCharacterConfig => ({
@@ -339,7 +339,7 @@ describe('CharacterSurface with a VRM persona', () => {
     const network = new TypeError('Failed to fetch');
     render({ character: vrmPersona(), makeDriver: vrmMaker(network), probe: () => true });
     await settle();
-    expect(container.textContent).toContain(SURFACE_TEXT.failedTitle('kurisu_v2.vrm'));
+    expect(container.textContent).toContain(SURFACE_TEXT.failedTitle('amadeus_v2.vrm'));
     expect(container.textContent).toContain(SURFACE_TEXT.failedNetwork);
     const button = [...container.querySelectorAll('button')].find((b) => b.textContent === SURFACE_TEXT.tryAgain)!;
     act(() => { button.click(); });

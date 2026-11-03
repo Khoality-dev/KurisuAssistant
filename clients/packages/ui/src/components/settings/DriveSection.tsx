@@ -1,5 +1,5 @@
 /**
- * Settings → Kurisu Drive: how full the drive is.
+ * Settings → Amadeus Drive: how full the drive is.
  *
  * It used to offer its own Read only / Ask before writing / Full access, over
  * per-tool policies. Those are gone (#360): what the assistant may do without
@@ -15,10 +15,10 @@ import {
   Paper,
   Typography,
 } from '@mui/material';
-import { apiClient } from '@kurisu/api';
-import { config } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
+import { config } from '@amadeus/api';
 import { formatBytes } from '../explorer/DriveQuotaBar';
-import type { DriveUsage } from '@kurisu/models';
+import type { DriveUsage } from '@amadeus/models';
 
 export const DriveSection: React.FC = () => {
   const [usage, setUsage] = useState<DriveUsage | null>(null);
@@ -38,7 +38,7 @@ export const DriveSection: React.FC = () => {
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto' }}>
       <Typography variant="h5" sx={{ mb: 0.5, fontWeight: 600 }}>
-        Kurisu Drive
+        Amadeus Drive
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Account storage on your server. Every signed-in client sees the same files;

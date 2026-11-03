@@ -11,7 +11,7 @@ from datetime import date, datetime
 
 import pytest
 
-from kurisuassistant.calendar import times
+from amadeus.calendar import times
 
 
 LA = "America/Los_Angeles"
@@ -85,14 +85,14 @@ class TestZoneFor:
     def test_it_is_the_accounts_zone(self):
         from types import SimpleNamespace
 
-        from kurisuassistant.calendar import zone
+        from amadeus.calendar import zone
 
         assert zone.zone_for(SimpleNamespace(timezone="America/Los_Angeles")).key == "America/Los_Angeles"
 
     def test_an_account_without_one_is_utc(self):
         from types import SimpleNamespace
 
-        from kurisuassistant.calendar import zone
+        from amadeus.calendar import zone
 
         assert zone.zone_for(None).key == "UTC"
         assert zone.zone_for(SimpleNamespace(timezone=None)).key == "UTC"

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { defaultVrmSettings, type CharacterConfigDTO } from '@kurisu/models';
+import { defaultVrmSettings, type CharacterConfigDTO } from '@amadeus/models';
 import { characterLabel, deletedFiles } from './PersonasSection';
 
 const model = {
   url: '/character-assets/1/vrm/model', sha256: 'a'.repeat(64), bytes: 18_400_000, uploaded_at: '2026-09-21T00:00:00Z',
-  filename: 'kurisu_v2.vrm', spec_version: '1.0' as const, expressions: [],
+  filename: 'amadeus_v2.vrm', spec_version: '1.0' as const, expressions: [],
 };
 const clip = { id: 'c1ip0001', name: 'hop', url: '/character-assets/1/vrma/c1ip0001', sha256: 'b'.repeat(64), bytes: 250_000, loop: false };
 const tree = {
@@ -22,7 +22,7 @@ const tree = {
 describe('the persona card’s character line', () => {
   it('says which system shows and what it has', () => {
     expect(characterLabel(null)).toBe('No character');
-    expect(characterLabel({ kind: 'vrm', vrm: { ...defaultVrmSettings(), model } } as CharacterConfigDTO)).toBe('3D model · kurisu_v2.vrm');
+    expect(characterLabel({ kind: 'vrm', vrm: { ...defaultVrmSettings(), model } } as CharacterConfigDTO)).toBe('3D model · amadeus_v2.vrm');
     expect(characterLabel({ kind: 'vrm' })).toBe('3D model · none uploaded');
     expect(characterLabel({ kind: 'pose_graph', pose_tree: tree } as CharacterConfigDTO)).toBe('2D pose graph · 2 poses');
     expect(characterLabel({ kind: 'pose_graph' })).toBe('No character');
@@ -33,7 +33,7 @@ describe('what deleting a persona removes', () => {
   it('lists both members whichever shows, with sizes', () => {
     const config = { kind: 'pose_graph', pose_tree: tree, vrm: { ...defaultVrmSettings(), model, clips: [clip] } } as CharacterConfigDTO;
     expect(deletedFiles(config)).toEqual([
-      { kind: 'model', text: '3D model · kurisu_v2.vrm', size: '18.4 MB' },
+      { kind: 'model', text: '3D model · amadeus_v2.vrm', size: '18.4 MB' },
       { kind: 'clips', text: '1 of your own animation', size: '0.3 MB' },
       { kind: 'graph', text: 'Pose graph · 2 images, 1 video', size: '' },
     ]);

@@ -13,14 +13,14 @@ calendar reminder (#282), not a task.
 
 | Piece | File |
 |---|---|
-| Schedules: parse, next run, label (pure) | `kurisuassistant/tasks/schedule.py` |
-| Create, change, delete, serialize | `kurisuassistant/tasks/operations.py`, `tasks/records.py` |
-| The scheduler | `kurisuassistant/tasks/service.py` |
-| One run | `kurisuassistant/tasks/runner.py` |
-| Waiting for approval | `kurisuassistant/tasks/approvals.py` |
-| The account's time zone | `kurisuassistant/core/timezone.py` |
-| The assistant's tools | `kurisuassistant/tools/tasks.py` |
-| The Tasks screen's routes | `kurisuassistant/routers/tasks.py` |
+| Schedules: parse, next run, label (pure) | `amadeus/tasks/schedule.py` |
+| Create, change, delete, serialize | `amadeus/tasks/operations.py`, `tasks/records.py` |
+| The scheduler | `amadeus/tasks/service.py` |
+| One run | `amadeus/tasks/runner.py` |
+| Waiting for approval | `amadeus/tasks/approvals.py` |
+| The account's time zone | `amadeus/core/timezone.py` |
+| The assistant's tools | `amadeus/tools/tasks.py` |
+| The Tasks screen's routes | `amadeus/routers/tasks.py` |
 | Tables | `tasks`, `task_runs`, `task_approvals`; `conversations.task_run` / `task_id`; `users.timezone` (`database.md`) |
 
 ## Schedules

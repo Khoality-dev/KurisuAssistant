@@ -1,8 +1,8 @@
-# Kurisu Assistant
+# Amadeus
 
-![Kurisu Assistant banner](docs/assets/blue.png)
+![Amadeus banner](docs/assets/blue.png)
 
-Kurisu Assistant is a personal assistant built to help with both work and everyday life. It can answer questions, keep useful context, work with images, and hold voice conversations. It also works as a coding agent and general-purpose agentic harness that can read and edit files, run commands, use tools and skills, and hand side tasks to sub-agents it starts itself. Each account has one assistant with its own model, memory, and capabilities, while personas let you choose the name, personality, voice, and face it answers with.
+Amadeus (formerly Kurisu Assistant) is a personal assistant built to help with both work and everyday life. It can answer questions, keep useful context, work with images, and hold voice conversations. It also works as a coding agent and general-purpose agentic harness that can read and edit files, run commands, use tools and skills, and hand side tasks to sub-agents it starts itself. Each account has one assistant with its own model, memory, and capabilities, while personas let you choose the name, personality, voice, and face it answers with.
 
 The project is split into a server and two clients. Pick the guide that matches what you want to do:
 
@@ -26,9 +26,9 @@ one assistant, the persona it answers as, and the sub-agents it starts - see
 
 ## Quick start for users
 
-You need a Kurisu Assistant server URL and an account. If someone else hosts the server, ask them for both. To host it yourself, follow [Set up your own server](#set-up-your-own-server) below.
+You need an Amadeus server URL and an account. If someone else hosts the server, ask them for both. To host it yourself, follow [Set up your own server](#set-up-your-own-server) below.
 
-1. Install the [desktop client](https://github.com/Khoality-dev/KurisuAssistant/releases/latest) or [Android client](https://github.com/Khoality-dev/KurisuAssistant/releases/latest).
+1. Install the [desktop client](https://github.com/Khoality-dev/Amadeus/releases/latest) or [Android client](https://github.com/Khoality-dev/Amadeus/releases/latest).
 2. Open the app and enter the complete server URL, including `http://` or `https://`.
 3. On a fresh self-hosted server, register in the app, then ask the server operator to activate your account before signing in.
 4. The first time you sign in, the app asks for a model: pick a provider (Ollama, Google Gemini, NVIDIA NIM or Poe), enter its address or API key, connect, and pick one of its models. You can skip it; the first message then asks for a model. Anything else — a persona, a voice, a wake word — you can ask the assistant to set up.
@@ -54,7 +54,7 @@ The first start downloads several gigabytes. When it finishes, open
 <http://localhost:15597/health> on the server computer. A working server shows:
 
 ```json
-{"status":"ok","service":"kurisuassistant"}
+{"status":"ok","service":"amadeus"}
 ```
 
 Follow the quick start above, using `http://localhost:15597` on the server
@@ -69,6 +69,10 @@ SQL
 ```
 
 The user can now sign in.
+
+Updating an existing pre-Amadeus deployment requires a one-time named-volume
+migration before the new stack starts; follow [Backend operations — First update
+from KurisuAssistant](backend/docs/operations.md#first-update-from-kurisuassistant).
 
 For a cloud model, add its API key under **Settings → Account**. For Ollama,
 leave the default URL if it runs on the server computer; on Linux, start it with

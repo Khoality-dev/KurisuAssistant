@@ -19,8 +19,8 @@ const api = vi.hoisted(() => ({
   deleteCalendarEntry: vi.fn(async () => undefined),
 }));
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   apiClient: api,
 }));
 

@@ -15,7 +15,7 @@ and calendar reminders both go through it.
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from kurisuassistant.version import WIRE_PROTOCOL
+from amadeus.version import WIRE_PROTOCOL
 from tests.mock_ollama import DEFAULT_MODEL, Reply, ToolCall
 
 pytestmark = pytest.mark.db
@@ -33,7 +33,7 @@ def ready(ws):
 
 def send(account, **kwargs):
     """``notify()`` on the app's own event loop, as a tool or a reminder would call it."""
-    from kurisuassistant.notifications import notify
+    from amadeus.notifications import notify
 
     kwargs.setdefault("source", "assistant")
     kwargs.setdefault("title", "A title")
@@ -321,14 +321,14 @@ class TestHandshake:
     def test_the_browser_subprotocol_carrier_works(self, account):
         with account.client.websocket_connect(
             "/ws/notifications",
-            subprotocols=["kurisu.auth.bearer", account.token, f"kurisu.wire.{WIRE_PROTOCOL}"],
+            subprotocols=["amadeus.auth.bearer", account.token, f"amadeus.wire.{WIRE_PROTOCOL}"],
         ) as ws:
             ready(ws)
 
 
 class TestNotifyNeverRaises:
     def test_a_delivery_failure_is_logged_not_raised(self, account, monkeypatch, caplog):
-        from kurisuassistant.notifications import service
+        from amadeus.notifications import service
 
         async def broken(*args, **kwargs):
             raise RuntimeError("the database went away")

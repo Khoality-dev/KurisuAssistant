@@ -239,11 +239,11 @@ test.describe('streaming', () => {
     // only `role` therefore never exercises the persona half of that rule — the
     // reason this case was documented but not actually covered. Two personas and
     // a persona_id change mid-stream is the only way to reach it.
-    const amadeus = mock.addPersona({ name: 'Amadeus' });
+    const mozart = mock.addPersona({ name: 'Mozart' });
     mock.setStream({
       chunks: [
         { content: 'Kurisu speaking.', role: 'assistant', delayMs: 150 },
-        { content: 'Amadeus speaking.', role: 'assistant', delayMs: 150, personaId: amadeus.id },
+        { content: 'Mozart speaking.', role: 'assistant', delayMs: 150, personaId: mozart.id },
       ],
     });
 
@@ -251,12 +251,12 @@ test.describe('streaming', () => {
     await send(page, 'who is there');
 
     await expect(page.getByText('Kurisu speaking.').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Amadeus speaking.').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Mozart speaking.').first()).toBeVisible({ timeout: 10_000 });
 
     // The split is the point: if the two chunks had been accumulated into one
     // bubble, a single element would hold both sentences.
-    await expect(page.getByText('Kurisu speaking.Amadeus speaking.')).toHaveCount(0);
-    await expect(page.getByText('Kurisu speaking. Amadeus speaking.')).toHaveCount(0);
+    await expect(page.getByText('Kurisu speaking.Mozart speaking.')).toHaveCount(0);
+    await expect(page.getByText('Kurisu speaking. Mozart speaking.')).toHaveCount(0);
   });
 
   test('/compact trims the conversation it is in, and does not open another', async ({ page, mock }) => {

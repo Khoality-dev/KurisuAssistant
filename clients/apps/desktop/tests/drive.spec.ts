@@ -1,5 +1,5 @@
 /**
- * Kurisu Drive in the running app (#17).
+ * Amadeus Drive in the running app (#17).
  *
  * The unit tests pin `fileSource`'s routing and the store's lifecycle against
  * stubs. This pins what those cannot: that the explorer really does show two
@@ -34,11 +34,11 @@ async function openWorkspace(page: Page) {
 
 /** Into the drive from the root listing, the way a user would. */
 async function enterDrive(page: Page) {
-  await page.getByRole('row', { name: /Kurisu Drive/ }).first().dblclick();
+  await page.getByRole('row', { name: /Amadeus Drive/ }).first().dblclick();
   await expect(page.getByRole('columnheader', { name: 'Where it lives' })).toBeVisible({ timeout: 15_000 });
 }
 
-test.describe('Kurisu Drive', () => {
+test.describe('Amadeus Drive', () => {
   test('appears as a second root beside this computer', async ({ page, mock }) => {
     mock.addDriveEntry({ path: '/Reports/Q3-revenue-notes.md', content: '# Q3' });
 
@@ -46,7 +46,7 @@ test.describe('Kurisu Drive', () => {
     await openWorkspace(page);
 
     // The sources tree is the design's headline: one explorer, two roots.
-    await expect(page.getByText('Kurisu Drive').first()).toBeVisible();
+    await expect(page.getByText('Amadeus Drive').first()).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Where it lives' })).toBeVisible();
   });
 
@@ -116,9 +116,9 @@ test.describe('Kurisu Drive', () => {
     await signIn(page);
 
     await activityButton(page, 'SettingsOutlinedIcon').click();
-    await page.getByText('Kurisu Drive', { exact: true }).first().click();
+    await page.getByText('Amadeus Drive', { exact: true }).first().click();
 
-    await expect(page.getByRole('heading', { name: 'Kurisu Drive' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Amadeus Drive' })).toBeVisible({ timeout: 15_000 });
     // No presets of its own any more: the drive is one tool set among the others.
     await expect(page.getByText(/permission mode beside the chat input/)).toBeVisible();
     await expect(page.getByText('Ask before writing')).toHaveCount(0);

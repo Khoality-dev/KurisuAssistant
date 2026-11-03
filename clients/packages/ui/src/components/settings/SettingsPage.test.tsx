@@ -8,7 +8,7 @@
 import { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useLayoutStore } from '@kurisu/state';
+import { useLayoutStore } from '@amadeus/state';
 
 let assistantThrows = true;
 

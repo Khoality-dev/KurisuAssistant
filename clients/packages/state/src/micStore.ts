@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { MicVAD } from '@ricky0123/vad-web';
-import { apiClient, describeSpeechFailure } from '@kurisu/api';
-import { storage } from '@kurisu/api';
+import { apiClient, describeSpeechFailure } from '@amadeus/api';
+import { storage } from '@amadeus/api';
 
 export type ASRStatus = 'idle' | 'listening' | 'processing';
 

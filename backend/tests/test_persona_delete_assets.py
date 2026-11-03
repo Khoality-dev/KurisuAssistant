@@ -5,7 +5,7 @@ Regression cover for #234. ``DELETE /personas/{id}`` removed the row and left
 directories that belonged to no persona.
 
 Same shape as ``test_character_router.py``: the store is ``tmp_path`` through
-``kurisuassistant.character.paths.CHAR_ASSETS_DIR`` and the database is a stub.
+``amadeus.character.paths.CHAR_ASSETS_DIR`` and the database is a stub.
 """
 
 import io
@@ -18,9 +18,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kurisuassistant.character import paths
-from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.routers import personas
+from amadeus.character import paths
+from amadeus.core.deps import get_authenticated_user
+from amadeus.routers import personas
 from scripts import sweep_character_assets
 
 DELETED = 1
@@ -145,7 +145,7 @@ class TestDeletePersona:
         pose_dir = tmp_path / str(DELETED) / "p1"
         pose_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # no write bit: rmtree cannot unlink base.png
         try:
-            with caplog.at_level(logging.WARNING, logger="kurisuassistant.character.references"):
+            with caplog.at_level(logging.WARNING, logger="amadeus.character.references"):
                 response = client.delete(f"/personas/{DELETED}")
         finally:
             pose_dir.chmod(stat.S_IRWXU)

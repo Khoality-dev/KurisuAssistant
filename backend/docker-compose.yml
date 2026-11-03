@@ -34,7 +34,7 @@
 # Fixed so a deployment adopts the same containers and volumes from any directory.
 # Without it the project is named after the directory, and a checkout under a new
 # path would silently create an empty database instead of using this one.
-name: kurisuassistant
+name: amadeus
 
 services:
   whisper:
@@ -44,7 +44,7 @@ services:
     # MODEL_IDLE_TIMEOUT, which is the only residency there is now that no
     # engine runs in a process this project controls.
     image: onerahmet/openai-whisper-asr-webservice:v1.10.0-gpu
-    container_name: kurisu-whisper
+    container_name: amadeus-whisper
     environment:
       - ASR_ENGINE=faster_whisper
       - ASR_MODEL=${ASR_MODEL:-base}
@@ -73,7 +73,7 @@ services:
     # as a child and speaks the contract in front of it (#227). Pinned by tag,
     # dated at build; `latest` is what made this stack unreproducible before.
     image: legwork7623/gpt-sovits:kurisu-20260919
-    container_name: kurisu-gpt-sovits
+    container_name: amadeus-gpt-sovits
     environment:
       - is_half=True
       - is_share=False
@@ -106,7 +106,7 @@ services:
     # Synthesis: the owner's viXTTS server, which speaks the contract natively
     # (#227). Published for the first time with it, so a fresh install can pull it.
     image: legwork7623/vixtts:kurisu-20260919
-    container_name: kurisu-vixtts
+    container_name: amadeus-vixtts
     environment:
       - IDLE_TIMEOUT=${TTS_IDLE_TIMEOUT:-600}
     volumes:
@@ -138,10 +138,10 @@ services:
       dockerfile: Dockerfile
       args:
         # Baked into the image, never set at run time (#291): build with
-        # `KURISU_VERSION=$(git describe --tags) docker compose up -d --build`.
+        # `AMADEUS_VERSION=$(git describe --tags) docker compose up -d --build`.
         # Unset, the backend reports "dev".
-        KURISU_VERSION: ${KURISU_VERSION:-}
-    container_name: kurisu-api
+        AMADEUS_VERSION: ${AMADEUS_VERSION:-}
+    container_name: amadeus-api
     # Only the database. The speech services are called over HTTP per request,
     # so the API starts and serves text without them — and naming a profiled
     # service here would make the whole project invalid whenever that profile
@@ -162,12 +162,12 @@ services:
       # Where each speech engine is (#212). An address that is not set means
       # that engine is not part of this deployment: a request for it is refused
       # with a sentence naming what to start, never a silent empty list.
-      - ASR_URL=${ASR_URL:-http://kurisu-whisper:9000}
+      - ASR_URL=${ASR_URL:-http://amadeus-whisper:9000}
       # The synthesis engines, name=address pairs: the names are the model ids
       # the clients store, and every engine speaks the same contract, so this
-      # is all the API knows about them (#227). Add `,vixtts=http://kurisu-vixtts:19770`
+      # is all the API knows about them (#227). Add `,vixtts=http://amadeus-vixtts:19770`
       # with `--profile vixtts`, or any engine you run elsewhere.
-      - TTS_ENGINES=${TTS_ENGINES:-gpt-sovits=http://kurisu-gpt-sovits:9880}
+      - TTS_ENGINES=${TTS_ENGINES:-gpt-sovits=http://amadeus-gpt-sovits:9880}
       # Which synthesis engine serves a request that names none.
       - TTS_DEFAULT_MODEL=${TTS_DEFAULT_MODEL:-gpt-sovits}
       # What the recognition engine was started with, so the model picker can
@@ -197,7 +197,7 @@ services:
       - TASK_MAX_CONCURRENT_RUNS=${TASK_MAX_CONCURRENT_RUNS:-2}
       - TASK_APPROVAL_TIMEOUT_SECONDS=${TASK_APPROVAL_TIMEOUT_SECONDS:-86400}
       - MAX_IMAGE_BYTES=${MAX_IMAGE_BYTES:-16777216}
-      # Kurisu Drive. The quota is per account and registration is open by
+      # Amadeus Drive. The quota is per account and registration is open by
       # default, so an unmetered drive is a disk-exhaustion surface for the
       # whole host. Raising the file ceiling past nginx's client_max_body_size
       # only helps when nothing is proxying (see nginx/nginx.conf).
@@ -256,7 +256,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?copy the environment template and set the database credentials}
       - POSTGRES_HOST=${POSTGRES_HOST:-postgres-container}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
-      - POSTGRES_DB=${POSTGRES_DB:-kurisu}
+      - POSTGRES_DB=${POSTGRES_DB:-amadeus}
     extra_hosts:
       # Lets an account's Ollama URL, or EMBEDDING_API_URL, be
       # http://host.docker.internal:11434 to reach an Ollama running on the
@@ -290,7 +290,7 @@ services:
     environment:
       - POSTGRES_USER=${POSTGRES_USER:?copy the environment template and set the database credentials}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?copy the environment template and set the database credentials}
-      - POSTGRES_DB=${POSTGRES_DB:-kurisu}
+      - POSTGRES_DB=${POSTGRES_DB:-amadeus}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     # The API waits on this condition, so "healthy" has to mean "accepting
@@ -310,7 +310,7 @@ services:
   nginx:
     profiles: ["tls"]
     image: nginx:alpine
-    container_name: kurisu-nginx
+    container_name: amadeus-nginx
     depends_on:
       api:
         condition: service_started

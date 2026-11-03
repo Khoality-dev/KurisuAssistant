@@ -9,7 +9,7 @@ import wave
 
 import pytest
 
-from kurisuassistant.speech.text import merge_wav_files, split_text
+from amadeus.speech.text import merge_wav_files, split_text
 from tests.speech_fakes import frames_in, wav
 
 
@@ -72,12 +72,12 @@ def test_merge_refuses_something_that_is_not_audio():
 def test_merge_does_not_warn_when_only_the_lengths_differ(caplog):
     """The guard compares channels, width and rate — not the frame count,
     which differs on every merge and made the original warn each time."""
-    with caplog.at_level("WARNING", logger="kurisuassistant.speech.text"):
+    with caplog.at_level("WARNING", logger="amadeus.speech.text"):
         merge_wav_files([wav(100), wav(50)])
     assert not caplog.records
 
 
 def test_merge_warns_on_a_rate_mismatch(caplog):
-    with caplog.at_level("WARNING", logger="kurisuassistant.speech.text"):
+    with caplog.at_level("WARNING", logger="amadeus.speech.text"):
         merge_wav_files([wav(100, rate=16000), wav(50, rate=24000)])
     assert any("mismatch" in r.getMessage() for r in caplog.records)

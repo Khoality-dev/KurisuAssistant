@@ -7,8 +7,8 @@
 import { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { installBridge, resetBridge, fakeUpdater, type FakeUpdater } from '@kurisu/platform/testing';
-import { WIRE_PROTOCOL } from '@kurisu/models';
+import { installBridge, resetBridge, fakeUpdater, type FakeUpdater } from '@amadeus/platform/testing';
+import { WIRE_PROTOCOL } from '@amadeus/models';
 import { UpdateRequiredScreen, describeUpdateState } from './UpdateRequiredScreen';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -103,7 +103,7 @@ describe('UpdateRequiredScreen', () => {
     expect(byId('update-note')!.textContent).toContain('cannot update itself');
 
     await click('update-get');
-    expect(openExternal).toHaveBeenCalledWith('https://github.com/Khoality-dev/KurisuAssistant/releases/latest');
+    expect(openExternal).toHaveBeenCalledWith('https://github.com/Khoality-dev/Amadeus/releases/latest');
     expect(updater.calls.map((c) => c.method)).not.toContain('checkForUpdates');
   });
 

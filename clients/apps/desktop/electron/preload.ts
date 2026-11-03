@@ -126,7 +126,7 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
-  // Kurisu Drive transfers. Streamed in the main process, because a drive file
+  // Amadeus Drive transfers. Streamed in the main process, because a drive file
   // can be gigabytes and the renderer would have to hold the whole thing.
   drive: {
     /**

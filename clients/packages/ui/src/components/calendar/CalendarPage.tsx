@@ -33,8 +33,8 @@ import {
   localDateKey,
   startOfDay,
   type CalendarEntry,
-} from '@kurisu/models';
-import { useCalendarStore } from '@kurisu/state';
+} from '@amadeus/models';
+import { useCalendarStore } from '@amadeus/state';
 import { CalendarEntryDialog } from './CalendarEntryDialog';
 
 const HOUR_PX = 48;

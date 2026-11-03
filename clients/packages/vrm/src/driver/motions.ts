@@ -13,7 +13,7 @@
  * "lowered" pose is `rightUpperArm.z = +ARM_DROP_RAD`, so a raised right arm
  * is a negative z, and the left arm mirrors every z.
  */
-import type { VrmMotion } from '@kurisu/models';
+import type { VrmMotion } from '@amadeus/models';
 
 export type MotionBone =
   | 'head'

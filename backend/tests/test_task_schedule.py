@@ -1,6 +1,6 @@
 """When a task runs (#352): parsing what the assistant asked for, the next run, the label.
 
-Pure functions over ``kurisuassistant.tasks.schedule`` — no database, no clock.
+Pure functions over ``amadeus.tasks.schedule`` — no database, no clock.
 Every "after" handed in is naive UTC, the convention of every other timestamp
 column in this schema, and every run time that comes back is too.
 """
@@ -9,7 +9,7 @@ from datetime import datetime
 
 import pytest
 
-from kurisuassistant.tasks.schedule import (
+from amadeus.tasks.schedule import (
     ScheduleError,
     describe,
     first_run,

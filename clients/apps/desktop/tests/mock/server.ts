@@ -13,7 +13,7 @@
  * no persona and a request cannot name one (#354). There are no saved
  * sub-agents: the assistant spawns its own through `delegate_task`, scripted
  * here as a tool chunk with `toolKind: 'sub_agent'`. If a field here disagrees
- * with `backend/kurisuassistant/`, the backend wins — fix the mock.
+ * with `backend/amadeus/`, the backend wins — fix the mock.
  */
 
 import http from 'http';
@@ -29,7 +29,9 @@ import {
   ASSISTANT_NAME,
   WIRE_PROTOCOL,
   WS_AUTH_SUBPROTOCOL,
+  LEGACY_WS_AUTH_SUBPROTOCOL,
   WS_WIRE_SUBPROTOCOL_PREFIX,
+  LEGACY_WS_WIRE_SUBPROTOCOL_PREFIX,
   WS_WIRE_PROTOCOL_MISMATCH,
   type AssistantTask,
   type CharacterConfigDTO,
@@ -38,7 +40,7 @@ import {
   type VrmClipRef,
   type VrmEmotion,
   type VrmSettings,
-} from '@kurisu/models';
+} from '@amadeus/models';
 
 /**
  * The smallest character a persona can have: one pose, its base image, no
@@ -143,7 +145,7 @@ export const VRM_CHARACTER_WITH_MODEL: CharacterConfigDTO = {
       sha256: VRM_MODEL_SHA256,
       bytes: VRM_MODEL_BYTES.length,
       uploaded_at: '2026-09-21T10:00:00Z',
-      filename: 'kurisu_v2.vrm',
+      filename: 'amadeus_v2.vrm',
       spec_version: '1.0',
       expressions: ['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised'],
     },
@@ -276,7 +278,7 @@ export interface MockTool {
 }
 
 /**
- * One entry in the mock's Kurisu Drive, given as a path.
+ * One entry in the mock's Amadeus Drive, given as a path.
  *
  * Paths rather than parent ids, because a spec wants to say "there is a
  * /Reports/Q3.md" without inventing a tree first; the mock builds the folders.
@@ -731,17 +733,22 @@ export class MockBackend {
         .split(',')
         .map((p) => p.trim())
         .filter(Boolean);
-      if (offered[0] === WS_AUTH_SUBPROTOCOL) {
-        req.headers['sec-websocket-protocol'] = WS_AUTH_SUBPROTOCOL;
-      }
+      const authIndex = offered.findIndex((p) =>
+        p === WS_AUTH_SUBPROTOCOL || p === LEGACY_WS_AUTH_SUBPROTOCOL);
+      const selectedAuth = authIndex >= 0 ? offered[authIndex] : null;
+      if (selectedAuth) req.headers['sec-websocket-protocol'] = selectedAuth;
 
-      const declared = offered.find((p) => p.startsWith(WS_WIRE_SUBPROTOCOL_PREFIX));
+      const declared = offered.find((p) =>
+        p.startsWith(WS_WIRE_SUBPROTOCOL_PREFIX) || p.startsWith(LEGACY_WS_WIRE_SUBPROTOCOL_PREFIX));
+      const declaredPrefix = declared?.startsWith(WS_WIRE_SUBPROTOCOL_PREFIX)
+        ? WS_WIRE_SUBPROTOCOL_PREFIX
+        : LEGACY_WS_WIRE_SUBPROTOCOL_PREFIX;
       const clientProtocol = declared
-        ? Number.parseInt(declared.slice(WS_WIRE_SUBPROTOCOL_PREFIX.length), 10)
+        ? Number.parseInt(declared.slice(declaredPrefix.length), 10)
         : null;
       const header = req.headers['authorization'];
-      const bearer = offered[0] === WS_AUTH_SUBPROTOCOL && offered[1]
-        ? `Bearer ${offered[1]}`
+      const bearer = authIndex >= 0 && offered[authIndex + 1]
+        ? `Bearer ${offered[authIndex + 1]}`
         : (typeof header === 'string' ? header : null);
 
       this.wss.handleUpgrade(req, socket, head, (ws) => {
@@ -1723,7 +1730,7 @@ export class MockBackend {
       res.statusCode = 204;
       return res.end();
     }
-    // ── Kurisu Drive ───────────────────────────────────────────────────────
+    // ── Amadeus Drive ───────────────────────────────────────────────────────
     // Above the catch-all below on purpose: that returns `{}` with a 200, so an
     // unimplemented drive route would look like an empty folder rather than a
     // missing endpoint.
@@ -2446,7 +2453,7 @@ export class MockBackend {
     return this.json(res, {});
   }
 
-  // ── Kurisu Drive ─────────────────────────────────────────────────────────
+  // ── Amadeus Drive ─────────────────────────────────────────────────────────
   //
   // A tree in memory, shaped like `drive_nodes`: rows with a parent link, and
   // the bytes alongside. Ownership is not modelled — this mock authenticates
@@ -3012,7 +3019,7 @@ export class MockBackend {
     const playTurn = async (event: any, extras: any[]) => {
       // The real server refuses the turn when neither the assistant row nor the
       // request names a model, before it creates a conversation — see
-      // backend/kurisuassistant/websocket/handlers.py. A new account is in
+      // backend/amadeus/websocket/handlers.py. A new account is in
       // exactly that state, so the mock has to be able to reproduce it. Anything
       // queued behind it would fail the same way, so the queue is dropped.
       if (!this.assistant.model_name && !event.model_name) {

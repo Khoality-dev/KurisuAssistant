@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { apiClient } from '@kurisu/api';
-import type { Conversation, Message } from '@kurisu/models';
+import { apiClient } from '@amadeus/api';
+import type { Conversation, Message } from '@amadeus/models';
 
 interface ConversationState {
   currentConversation: Conversation | null;

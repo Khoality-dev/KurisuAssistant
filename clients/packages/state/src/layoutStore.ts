@@ -21,10 +21,10 @@ interface LayoutState {
   persistWidths: () => void;
 }
 
-const CHAT_PANEL_WIDTH_KEY = 'kurisu_chat_panel_width';
-const WORKSPACE_TREE_WIDTH_KEY = 'kurisu_workspace_tree_width';
-const CHARACTER_VISIBLE_KEY = 'kurisu_character_visible';
-const CHARACTER_PANEL_HEIGHT_KEY = 'kurisu_character_panel_height';
+const CHAT_PANEL_WIDTH_KEY = 'amadeus_chat_panel_width';
+const WORKSPACE_TREE_WIDTH_KEY = 'amadeus_workspace_tree_width';
+const CHARACTER_VISIBLE_KEY = 'amadeus_character_visible';
+const CHARACTER_PANEL_HEIGHT_KEY = 'amadeus_character_panel_height';
 
 export const CHARACTER_PANEL_DEFAULT_HEIGHT = 320;
 export const CHARACTER_PANEL_MIN_HEIGHT = 160;

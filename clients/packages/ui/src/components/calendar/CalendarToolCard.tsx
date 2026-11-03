@@ -11,8 +11,8 @@ import {
   entryDay,
   formatShortDate,
   parseCalendarToolResult,
-} from '@kurisu/models';
-import { useCalendarStore } from '@kurisu/state';
+} from '@amadeus/models';
+import { useCalendarStore } from '@amadeus/state';
 
 interface Props {
   toolName: string | null | undefined;

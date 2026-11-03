@@ -10,9 +10,9 @@ import {
   Typography,
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
-import { useMicStore } from '@kurisu/state';
-import type { Assistant, AssistantUpdate } from '@kurisu/models';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
+import { useMicStore } from '@amadeus/state';
+import type { Assistant, AssistantUpdate } from '@amadeus/models';
 
 interface AssistantFormData {
   think: boolean;

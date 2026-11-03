@@ -267,9 +267,9 @@ class TestServerSideMcp:
 
 class TestMemory:
     def test_an_idle_conversation_is_consolidated_and_the_next_chat_remembers(self, account, mock_ollama):
-        from kurisuassistant.db.models import Conversation
-        from kurisuassistant.db.session import get_session
-        from kurisuassistant.workers.service import CONVERSATION_IDLE_THRESHOLD_MINUTES, BackgroundService
+        from amadeus.db.models import Conversation
+        from amadeus.db.session import get_session
+        from amadeus.workers.service import CONVERSATION_IDLE_THRESHOLD_MINUTES, BackgroundService
 
         account.client.patch("/users/me", json={"summary_model": DEFAULT_MODEL}, headers=account.headers)
         account.client.patch("/assistant", json={"memory_enabled": True}, headers=account.headers)

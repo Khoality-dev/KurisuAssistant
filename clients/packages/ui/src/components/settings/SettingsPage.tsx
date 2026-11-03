@@ -15,9 +15,9 @@ import {
   GetApp as ExtensionsIcon,
   Notifications as NotificationsIcon,
 } from '@mui/icons-material';
-import { useLayoutStore } from '@kurisu/state';
-import { useCapabilities } from '@kurisu/hooks';
-import type { Capabilities } from '@kurisu/platform';
+import { useLayoutStore } from '@amadeus/state';
+import { useCapabilities } from '@amadeus/hooks';
+import type { Capabilities } from '@amadeus/platform';
 import { ScreenErrorBoundary } from '../ScreenErrorBoundary';
 
 // Lazy imports for settings sections
@@ -59,7 +59,7 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'personas', label: 'Personas', icon: <PersonasIcon /> },
   { id: 'tools', label: 'Tools', icon: <ToolsIcon /> },
   { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
-  { id: 'drive', label: 'Kurisu Drive', icon: <DriveIcon /> },
+  { id: 'drive', label: 'Amadeus Drive', icon: <DriveIcon /> },
   { id: 'notifications', label: 'Notifications', icon: <NotificationsIcon />, needs: 'systemNotifications' },
   { id: 'host-access', label: 'Host Access', icon: <HostAccessIcon />, needs: 'hostTools' },
   { id: 'faces', label: 'Face Identities', icon: <FacesIcon /> },

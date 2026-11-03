@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { apiClient, storage } from '@kurisu/api';
-import { resolveBridge } from '@kurisu/platform';
+import { apiClient, storage } from '@amadeus/api';
+import { resolveBridge } from '@amadeus/platform';
 import { mirrorCharacterFeed } from './characterBridgeSync';
 
 /**

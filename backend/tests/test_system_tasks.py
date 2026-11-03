@@ -38,9 +38,9 @@ def set_mode(account, mode):
 def make_task(account, *, title="Morning briefing", instructions="Say good morning.",
               repeat="now", next_run_at=None, **schedule_kwargs) -> int:
     """A task row as the assistant's tools would leave it, due at ``next_run_at``."""
-    from kurisuassistant.db.repositories import TaskRepository
-    from kurisuassistant.db.session import get_session
-    from kurisuassistant.tasks.schedule import parse_schedule
+    from amadeus.db.repositories import TaskRepository
+    from amadeus.db.session import get_session
+    from amadeus.tasks.schedule import parse_schedule
 
     schedule = parse_schedule(repeat, **schedule_kwargs)
     with get_session() as session:
@@ -55,7 +55,7 @@ def make_task(account, *, title="Morning briefing", instructions="Say good morni
 
 
 def kick():
-    from kurisuassistant.tasks import service
+    from amadeus.tasks import service
 
     service.kick()
 
@@ -308,9 +308,9 @@ class TestRuns:
         assert run["status"] == "stopped"
 
     def test_a_run_interrupted_by_a_restart_is_marked_failed(self, account):
-        from kurisuassistant.db.repositories import TaskRunRepository
-        from kurisuassistant.db.session import get_session
-        from kurisuassistant.tasks import service
+        from amadeus.db.repositories import TaskRunRepository
+        from amadeus.db.session import get_session
+        from amadeus.tasks import service
 
         task_id = make_task(account, next_run_at=datetime.utcnow() + timedelta(days=1))
         with get_session() as session:
@@ -426,7 +426,7 @@ class TestTasksScreen:
 @pytest.fixture()
 def notified(monkeypatch):
     """What the run asked to be told, in place of #353's notification."""
-    from kurisuassistant.tasks import approvals
+    from amadeus.tasks import approvals
 
     calls = []
 
@@ -560,7 +560,7 @@ class TestApproval:
         assert notified == [] and approvals_of(account) == []
 
     def test_nobody_answering_denies_the_call(self, account, notified, monkeypatch):
-        from kurisuassistant.tasks import approvals
+        from amadeus.tasks import approvals
 
         monkeypatch.setattr(approvals, "APPROVAL_TIMEOUT_SECONDS", 0.5)
         use_model(account)
@@ -599,9 +599,9 @@ class TestApproval:
         assert approvals_of(account) == []
 
     def test_a_restart_while_waiting_fails_the_run_and_says_so(self, account):
-        from kurisuassistant.db.repositories import TaskApprovalRepository, TaskRunRepository
-        from kurisuassistant.db.session import get_session
-        from kurisuassistant.tasks import service
+        from amadeus.db.repositories import TaskApprovalRepository, TaskRunRepository
+        from amadeus.db.session import get_session
+        from amadeus.tasks import service
 
         task_id = make_task(account, next_run_at=datetime.utcnow() + timedelta(days=1))
         with get_session() as session:
@@ -681,7 +681,7 @@ class TestTimezone:
         assert get_task(account, task_id)["schedule_label"] == "Weekdays at 07:00 (America/New_York)"
 
     def test_the_tool_no_longer_asks_the_model_for_a_zone(self):
-        from kurisuassistant.tools.tasks import TaskScheduleTool
+        from amadeus.tools.tasks import TaskScheduleTool
 
         description = TaskScheduleTool().get_schema()["function"]["parameters"]["properties"]["timezone"]["description"]
         assert "ask the user" not in description.lower()

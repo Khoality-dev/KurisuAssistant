@@ -10,7 +10,7 @@
  * The bridge is resolved once for the life of the renderer, so this is a
  * constant — it needs no state and never triggers a re-render.
  */
-import { resolveBridge, type Capabilities } from '@kurisu/platform';
+import { resolveBridge, type Capabilities } from '@amadeus/platform';
 
 export function useCapabilities(): Capabilities {
   return resolveBridge().capabilities;

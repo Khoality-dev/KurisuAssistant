@@ -1,8 +1,8 @@
-# Kurisu Assistant API Documentation
+# Amadeus API Documentation
 
 **Base URL:** `http://localhost:15597`
 
-Every endpoint below exists in `kurisuassistant/routers/`. If this file and the
+Every endpoint below exists in `amadeus/routers/`. If this file and the
 routers disagree, the routers are right and this file is a bug.
 
 ## Table of Contents
@@ -104,7 +104,7 @@ so there is nothing to refuse at this point.
 No authentication.
 
 ```json
-{"status": "ok", "service": "kurisuassistant"}
+{"status": "ok", "service": "amadeus"}
 ```
 
 ### GET /version
@@ -266,7 +266,7 @@ is what makes infinite scroll work.
       "name": "Kurisu",
       "persona_id": 3,
       "persona": {"id": 3, "name": "Kurisu", "avatar_uuid": null,
-                  "voice_reference": "kurisu_ref"},
+                  "voice_reference": "amadeus_ref"},
       "model_name": "llama3.2:latest",
       "provider_type": "ollama",
       "emotion_cues": [{"emotion": "happy", "at": 0}],
@@ -480,7 +480,7 @@ All of the user's personas, enabled or not, oldest first.
     "description": "",
     "system_prompt": "You are a neuroscientist…",
     "preferred_name": "Okabe",
-    "voice_reference": "kurisu_ref",
+    "voice_reference": "amadeus_ref",
     "avatar_uuid": "550e8400-…",
     "character_config": null,
     "enabled": true
@@ -498,7 +498,7 @@ All of the user's personas, enabled or not, oldest first.
 the two members are kept side by side, so a persona can switch back without
 uploading anything again. `pose_tree` is the 2D rig the graph editor writes
 (`clients/apps/desktop/docs/character.md`); `vrm` is the 3D model's settings,
-typed and validated in `kurisuassistant/character/schema.py`, of which `model`
+typed and validated in `amadeus/character/schema.py`, of which `model`
 and `clips` are **server-owned** — written by the asset routes; a body must
 leave them out, send `null`, or echo the exact shape `GET /personas` returned
 (a partial echo is `422`), and whatever it sends, the stored values win.
@@ -981,7 +981,7 @@ trash.
 ### GET /drive/usage
 
 `{"used_bytes": …, "quota_bytes": …, "file_count": …, "max_file_bytes": …}` —
-what the explorer's quota bar and Settings → Kurisu Drive read.
+what the explorer's quota bar and Settings → Amadeus Drive read.
 
 ---
 
@@ -1078,7 +1078,7 @@ reminder given a `repeat` becomes a series from its own time.
 ## Text-to-Speech
 
 Served by the speech engines behind the API — one container each, from
-published images — through `kurisuassistant/speech/` (#212). Two kinds of
+published images — through `amadeus/speech/` (#212). Two kinds of
 failure, on the synthesis and recognition routes: a request **refused** with a
 `400` (a model this server does not run, an unknown preset voice, a language
 the engine does not speak, GPT-SoVITS with no reference clip, text that
@@ -1500,7 +1500,7 @@ video files on disk. → `{"message": "Migrated N IDs"}`.
 Merges the body over the stored config member by member, writes the result, then
 **removes the asset files the merged config no longer references** — whichever
 `kind` is selected, both members' files are references. The sweep is fail-closed
-and runs after the write (`kurisuassistant/character/`, #233): a body without a
+and runs after the write (`amadeus/character/`, #233): a body without a
 recognised `kind`, or whose `/character-assets/` URLs are not under this persona's
 id, is refused with `422` and nothing on disk is touched — an imported config
 pointing at another install's ids used to empty the directory, and a kind-less
@@ -1532,12 +1532,12 @@ A persona holds at most one VRM model, at `{persona_id}/vrm/{sha256}.vrm`
 committed, and the old file is removed after, so a GET always streams the bytes
 its `ETag` names; the public URL stays `…/vrm/model`), and any
 number of VRMA clips, at `{persona_id}/vrma/{clip_id}.vrma` — in the character
-store, not Kurisu Drive (`drive.md` says why). Their refs, `vrm.model` and
+store, not Amadeus Drive (`drive.md` says why). Their refs, `vrm.model` and
 `vrm.clips` in `character_config`, are **server-owned**: these routes write them in
 the database transaction that accepts the bytes, a config save puts the stored
 values back over whatever its body says, and the stored refs are the one source of
 truth for what the cleanup keeps, what the ETag is and how much of the quota is used
-(`kurisuassistant/character/assets.py`). Any persona may hold a model or clips
+(`amadeus/character/assets.py`). Any persona may hold a model or clips
 whatever its `kind` — uploading does not change what shows.
 
 Uploads are the **raw request body** (`application/octet-stream`), not multipart,
@@ -1584,7 +1584,7 @@ Uploads or replaces the model. The ref records what the file says about itself:
            "license_url": "https://vrm.dev/licenses/1.0/", "avatar_permission": "onlyAuthor",
            "commercial_usage": "personalNonProfit"},
   "character_config": {"kind": "vrm", "vrm": {"model": {"url": "/character-assets/3/vrm/model",
-    "sha256": "9f2c…", "bytes": 19293184, "uploaded_at": "…", "filename": "kurisu_v2.vrm",
+    "sha256": "9f2c…", "bytes": 19293184, "uploaded_at": "…", "filename": "amadeus_v2.vrm",
     "spec_version": "1.0", "expressions": ["neutral", "happy", "angry", "sad", "relaxed", "surprised"]}, "…": "…"}}
 }
 ```
@@ -1698,11 +1698,13 @@ The full protocol — handshake, close codes, and every event shape — is docum
 in **[websocket.md](websocket.md)**. In brief:
 
 **Authentication:** `Authorization: Bearer <token>`, or a
-`kurisu.auth.bearer, <token>` subprotocol pair for browsers. The `?token=` query
+`amadeus.auth.bearer, <token>` subprotocol pair for browsers. The legacy
+`kurisu.auth.bearer` spelling is accepted and echoed only for compatibility.
+The `?token=` query
 parameter was removed in wire protocol 3.
 
-**Wire protocol:** declared with `X-Wire-Protocol` or a `kurisu.wire.<n>`
-subprotocol entry; a mismatch closes with `4426` **before** authentication.
+**Wire protocol:** declared with `X-Wire-Protocol` or an `amadeus.wire.<n>`
+subprotocol entry (`kurisu.wire.<n>` is accepted only for compatibility); a mismatch closes with `4426` **before** authentication.
 
 **Client → Server:** `chat_request`, `cancel`, `tool_approval_response`,
 `tool_call_response`, `client_tools_register`, `compact_context`, `vision_start`,

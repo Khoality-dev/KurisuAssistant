@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kurisuassistant.websocket.manager import ConnectionManager
-from kurisuassistant.websocket.handlers import ChatSessionHandler
-from kurisuassistant.websocket.events import StreamChunkEvent, DoneEvent, ErrorEvent
+from amadeus.websocket.manager import ConnectionManager
+from amadeus.websocket.handlers import ChatSessionHandler
+from amadeus.websocket.events import StreamChunkEvent, DoneEvent, ErrorEvent
 
 
 def make_mock_ws(client_state="CONNECTED"):

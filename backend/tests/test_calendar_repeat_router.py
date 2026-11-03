@@ -21,7 +21,7 @@ FIRST = "2026-10-16T15:00:00Z"  # Fri 16 Oct 2026, 08:00 in Los Angeles
 
 @pytest.fixture(autouse=True)
 def in_los_angeles(monkeypatch):
-    from kurisuassistant.calendar import zone
+    from amadeus.calendar import zone
 
     monkeypatch.setattr(zone, "zone_for", lambda user: LA)
 
@@ -205,8 +205,8 @@ class TestChangeAndStop:
 
     @staticmethod
     def _delivered_at(entry_id):
-        from kurisuassistant.db.models import CalendarEntry
-        from kurisuassistant.db.session import get_session
+        from amadeus.db.models import CalendarEntry
+        from amadeus.db.session import get_session
 
         with get_session() as session:
             return session.get(CalendarEntry, entry_id).delivered_at

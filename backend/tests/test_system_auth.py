@@ -11,11 +11,11 @@ from datetime import timedelta
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from kurisuassistant.core.accounts import ACCOUNT_INACTIVE_DETAIL
-from kurisuassistant.core.security import create_access_token
-from kurisuassistant.db.repositories import UserRepository
-from kurisuassistant.db.session import get_session
-from kurisuassistant.version import WIRE_PROTOCOL
+from amadeus.core.accounts import ACCOUNT_INACTIVE_DETAIL
+from amadeus.core.security import create_access_token
+from amadeus.db.repositories import UserRepository
+from amadeus.db.session import get_session
+from amadeus.version import WIRE_PROTOCOL
 
 pytestmark = pytest.mark.db
 
@@ -61,7 +61,7 @@ class TestRefresh:
         assert resp.json()["detail"] == ACCOUNT_INACTIVE_DETAIL
 
     def test_a_deleted_account_cannot_refresh(self, account):
-        from kurisuassistant.db.models import User
+        from amadeus.db.models import User
 
         with get_session() as session:
             session.query(User).filter_by(username=account.username).delete()
@@ -121,7 +121,7 @@ class TestWireProtocolOnTheSocket:
         a subprotocol entry instead."""
         closed = self._close_of(
             account.client,
-            subprotocols=["kurisu.auth.bearer", account.token, f"kurisu.wire.{WIRE_PROTOCOL + 1}"],
+            subprotocols=["amadeus.auth.bearer", account.token, f"amadeus.wire.{WIRE_PROTOCOL + 1}"],
         )
         assert closed.code == 4426
 
@@ -136,6 +136,6 @@ class TestWireProtocolOnTheSocket:
     def test_a_matching_subprotocol_connects(self, account):
         with account.client.websocket_connect(
             "/ws/chat",
-            subprotocols=["kurisu.auth.bearer", account.token, f"kurisu.wire.{WIRE_PROTOCOL}"],
+            subprotocols=["amadeus.auth.bearer", account.token, f"amadeus.wire.{WIRE_PROTOCOL}"],
         ) as ws:
             assert ws.receive_json()["type"] == "connected"

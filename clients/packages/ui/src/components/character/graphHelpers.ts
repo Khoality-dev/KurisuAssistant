@@ -1,5 +1,5 @@
 import { MarkerType, type Node as RFNode, type Edge as RFEdge } from '@xyflow/react';
-import type { AnimationNode, AnimationEdge, PoseTree } from '@kurisu/models';
+import type { AnimationNode, AnimationEdge, PoseTree } from '@amadeus/models';
 import type { PoseGraphNodeData } from '../PoseGraphNode';
 
 // ─── Per-condition edge styling ───

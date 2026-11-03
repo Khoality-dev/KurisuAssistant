@@ -11,7 +11,7 @@
  * the bearer only if the session arrived before the persona did.
  */
 
-import { fakeCharacterWindow } from '@kurisu/platform/testing';
+import { fakeCharacterWindow } from '@amadeus/platform/testing';
 import { describe, expect, it } from 'vitest';
 import { greetCharacterWindow } from './characterSession';
 

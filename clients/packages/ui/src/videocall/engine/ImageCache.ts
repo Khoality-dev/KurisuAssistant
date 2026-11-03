@@ -6,7 +6,7 @@
  * token attached and handed to the image as an object URL instead.
  */
 
-import { fetchAuthedBlob } from '@kurisu/api';
+import { fetchAuthedBlob } from '@amadeus/api';
 
 const cache = new Map<string, HTMLImageElement>();
 const objectUrls = new Set<string>();

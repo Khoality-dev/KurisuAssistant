@@ -41,7 +41,7 @@ mediapipe
 ultralytics
 yt-dlp
 google-genai
-# Retrieval index (#6): document extraction for Kurisu Drive files. Pure Python.
+# Retrieval index (#6): document extraction for Amadeus Drive files. Pure Python.
 pypdf
 python-docx
 python-pptx

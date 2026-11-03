@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { apiClient } from '@kurisu/api';
-import { parseCharacterConfig, type Message } from '@kurisu/models';
-import { characterSurfaceWanted, clearEmotion, publishSubtitle, pushEmotion, useCharacterStore } from '@kurisu/state';
+import { apiClient } from '@amadeus/api';
+import { parseCharacterConfig, type Message } from '@amadeus/models';
+import { characterSurfaceWanted, clearEmotion, publishSubtitle, pushEmotion, useCharacterStore } from '@amadeus/state';
 import { restingCueOf } from './emotionTiming';
 
 interface UseCharacterPanelParams {

@@ -21,8 +21,8 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { VRMAnimation, VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy } from '@pixiv/three-vrm-animation';
-import type { VrmEmotion } from '@kurisu/models';
-import { VRM_EMOTIONS } from '@kurisu/models';
+import type { VrmEmotion } from '@amadeus/models';
+import { VRM_EMOTIONS } from '@amadeus/models';
 import { everyEmotion, type ExpressionModel, type OverrideMode } from './expressions';
 
 /** A load failure the user can read. */

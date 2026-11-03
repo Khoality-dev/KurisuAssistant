@@ -18,8 +18,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.routers import auth, users
+from amadeus.core.deps import get_authenticated_user
+from amadeus.routers import auth, users
 
 
 # ---------------------------------------------------------------------------

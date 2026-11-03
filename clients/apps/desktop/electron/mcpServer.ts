@@ -115,7 +115,7 @@ export function startMcpServer(port: number | undefined = DEFAULT_PORT): void {
     if (url.pathname === '/sse' && req.method === 'GET') {
       // New SSE connection — create a fresh MCP server + transport per session
       const mcpServer = new McpServer(
-        { name: 'KurisuAssistant', version: '1.0.0' },
+        { name: 'Amadeus', version: '1.0.0' },
         { capabilities: { tools: {} } },
       );
 
@@ -166,7 +166,7 @@ export function startMcpServer(port: number | undefined = DEFAULT_PORT): void {
     // running" from "wrong token", and says nothing a caller could use.
     if (url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', name: 'KurisuAssistant' }));
+      res.end(JSON.stringify({ status: 'ok', name: 'Amadeus' }));
       return;
     }
 

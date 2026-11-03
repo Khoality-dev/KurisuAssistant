@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kurisuassistant.websocket.events import (
+from amadeus.websocket.events import (
     parse_event,
     StreamChunkEvent,
     DoneEvent,
@@ -338,7 +338,7 @@ class TestWavMerging:
 # ---------------------------------------------------------------------------
 
 class TestTTSRouter:
-    """Test the KurisuAssistant TTS proxy router logic."""
+    """Test the Amadeus TTS proxy router logic."""
 
     def test_find_voice_file_with_tmp(self, tmp_path):
         voice_dir = tmp_path / "vs"
@@ -346,8 +346,8 @@ class TestTTSRouter:
         (voice_dir / "test-uuid.wav").write_bytes(b"RIFF")
         (voice_dir / "other.mp3").write_bytes(b"\xff\xfb")
 
-        with patch("kurisuassistant.routers.tts.VOICE_STORAGE_DIR", voice_dir):
-            from kurisuassistant.routers.tts import _find_voice_file
+        with patch("amadeus.routers.tts.VOICE_STORAGE_DIR", voice_dir):
+            from amadeus.routers.tts import _find_voice_file
             assert _find_voice_file("test-uuid") == voice_dir / "test-uuid.wav"
             assert _find_voice_file("other") == voice_dir / "other.mp3"
             assert _find_voice_file("missing") is None
@@ -359,8 +359,8 @@ class TestTTSRouter:
         (voice_dir / "voice.wav").write_bytes(b"RIFF")
         (voice_dir / "voice.mp3").write_bytes(b"\xff\xfb")
 
-        with patch("kurisuassistant.routers.tts.VOICE_STORAGE_DIR", voice_dir):
-            from kurisuassistant.routers.tts import _find_voice_file
+        with patch("amadeus.routers.tts.VOICE_STORAGE_DIR", voice_dir):
+            from amadeus.routers.tts import _find_voice_file
             result = _find_voice_file("voice")
             assert result.suffix == ".wav"
 

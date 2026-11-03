@@ -1,16 +1,16 @@
-import { installBridge, resetBridge } from '@kurisu/platform/testing';
-import type { DriveTransferAPI } from '@kurisu/platform';
+import { installBridge, resetBridge } from '@amadeus/platform/testing';
+import type { DriveTransferAPI } from '@amadeus/platform';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   apiClient: { getToken: () => 'test-token' },
   config: { apiBaseUrl: 'http://mock:15597' },
   driveNodeId: vi.fn(async (path: string) => (path === 'drive://' ? null : 7)),
   rememberNode: vi.fn(),
 }));
 
-import { driveNodeId } from '@kurisu/api';
+import { driveNodeId } from '@amadeus/api';
 import { resetTransferSubscription, useTransferStore } from './transferStore';
 
 let progressListener: ((p: { id: string; loaded: number; total: number | null }) => void) | null = null;
@@ -71,7 +71,7 @@ describe('an upload', () => {
       name: 'report.pdf',
       status: 'active',
       bytes: 2048,
-      note: 'to Kurisu Drive / Reports',
+      note: 'to Amadeus Drive / Reports',
     });
 
     resolveUpload({ node: { id: 11, name: 'report.pdf', size: 2048 } });

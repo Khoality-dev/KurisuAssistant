@@ -13,25 +13,25 @@
  * memory first and to the keychain in the background.
  */
 
-import { resolveBridge } from '@kurisu/platform';
+import { resolveBridge } from '@amadeus/platform';
 
 const STORAGE_KEYS = {
-  REMEMBER_ME: 'kurisu_remember_me',
-  SELECTED_MODEL: 'kurisu_selected_model',
-  TTS_VOICE: 'kurisu_tts_voice',
-  TTS_LANGUAGE: 'kurisu_tts_language',
-  TTS_AUTO_PLAY: 'kurisu_tts_auto_play',
-  TTS_BACKEND: 'kurisu_tts_backend',
-  BACKEND_URL: 'kurisu_backend_url',
+  REMEMBER_ME: 'amadeus_remember_me',
+  SELECTED_MODEL: 'amadeus_selected_model',
+  TTS_VOICE: 'amadeus_tts_voice',
+  TTS_LANGUAGE: 'amadeus_tts_language',
+  TTS_AUTO_PLAY: 'amadeus_tts_auto_play',
+  TTS_BACKEND: 'amadeus_tts_backend',
+  BACKEND_URL: 'amadeus_backend_url',
 
-  ASR_DEVICE_ID: 'kurisu_asr_device_id',
-  ASR_LANGUAGE: 'kurisu_asr_language',
-  VOICE_MODE: 'kurisu_voice_mode',
-  ASR_MODE: 'kurisu_asr_mode',
-  ASR_FIXED_MODEL: 'kurisu_asr_fixed_model',
-  ASR_MODEL_MAP: 'kurisu_asr_model_map',
-  NOTIFICATIONS_ENABLED: 'kurisu_notifications_enabled',
-  NOTIFICATIONS_SHOWN: 'kurisu_notifications_shown',
+  ASR_DEVICE_ID: 'amadeus_asr_device_id',
+  ASR_LANGUAGE: 'amadeus_asr_language',
+  VOICE_MODE: 'amadeus_voice_mode',
+  ASR_MODE: 'amadeus_asr_mode',
+  ASR_FIXED_MODEL: 'amadeus_asr_fixed_model',
+  ASR_MODEL_MAP: 'amadeus_asr_model_map',
+  NOTIFICATIONS_ENABLED: 'amadeus_notifications_enabled',
+  NOTIFICATIONS_SHOWN: 'amadeus_notifications_shown',
 } as const;
 
 // Keys from before the agent/persona split. Both held a cache that re-derives from
@@ -51,9 +51,26 @@ const LEGACY_STORAGE_KEYS = [
 
 // Where the tokens used to be kept. Read once during migration, then removed.
 const LEGACY_TOKEN_KEYS = {
-  AUTH_TOKEN: 'kurisu_auth_token',
-  REFRESH_TOKEN: 'kurisu_refresh_token',
+  AUTH_TOKEN: 'amadeus_auth_token',
+  REFRESH_TOKEN: 'amadeus_refresh_token',
 } as const;
+
+function migrateRenamedStorageKeys(): void {
+  try {
+    const oldKeys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+      .filter((key): key is string => key?.startsWith('kurisu_') === true);
+    for (const oldKey of oldKeys) {
+      const newKey = `amadeus_${oldKey.slice('kurisu_'.length)}`;
+      if (localStorage.getItem(newKey) === null) {
+        const value = localStorage.getItem(oldKey);
+        if (value !== null) localStorage.setItem(newKey, value);
+      }
+      localStorage.removeItem(oldKey);
+    }
+  } catch (error) {
+    console.error('Failed to migrate renamed storage keys:', error);
+  }
+}
 
 /**
  * The tokens, for this window only. Never written to localStorage; the copy
@@ -147,6 +164,7 @@ export const storage = {
    * credential on disk is the thing being fixed, and the user can log in again.
    */
   async loadPersistedTokens(): Promise<void> {
+    migrateRenamedStorageKeys();
     const bridge = credentialsBridge();
 
     let legacyAccess: string | null = null;

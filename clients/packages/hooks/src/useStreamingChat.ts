@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent, ContextInfoEvent } from '@kurisu/api';
-import { useConversationStore } from '@kurisu/state';
-import { storage } from '@kurisu/api';
-import { fileToBase64 } from '@kurisu/api';
-import { useExplorerStore } from '@kurisu/state';
-import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message } from '@kurisu/models';
-import { handleCommand, publishSubtitle, pushEmotion, setThinking } from '@kurisu/state';
+import { wsManager, StreamChunkEvent, DoneEvent, ErrorEvent, ConnectedEvent, ToolApprovalRequestEvent, ContextInfoEvent } from '@amadeus/api';
+import { useConversationStore } from '@amadeus/state';
+import { storage } from '@amadeus/api';
+import { fileToBase64 } from '@amadeus/api';
+import { useExplorerStore } from '@amadeus/state';
+import { newId, WS_ERROR_NO_MODEL_SELECTED, type Message } from '@amadeus/models';
+import { handleCommand, publishSubtitle, pushEmotion, setThinking } from '@amadeus/state';
 import { StreamSpeechPlanner, type SegmentCue } from './emotionTiming';
 
 /**

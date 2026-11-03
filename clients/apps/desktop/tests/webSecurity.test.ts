@@ -62,7 +62,7 @@ describe('navigation', () => {
   const DEV = 'http://localhost:5173';
 
   it('allows the packaged app to load its own documents', () => {
-    expect(isAllowedNavigation('file:///opt/kurisu/dist/index.html')).toBe(true);
+    expect(isAllowedNavigation('file:///opt/amadeus/dist/index.html')).toBe(true);
     expect(isAllowedNavigation('local-file:///home/u/pictures/a.png')).toBe(true);
   });
 

@@ -14,8 +14,8 @@ import types
 import pytest
 from pydantic import ValidationError
 
-from kurisuassistant.mcp_tools.orchestrator import _create_client_from_server
-from kurisuassistant.routers.mcp import MCPServerCreate
+from amadeus.mcp_tools.orchestrator import _create_client_from_server
+from amadeus.routers.mcp import MCPServerCreate
 
 
 def row(**overrides):

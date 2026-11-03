@@ -10,7 +10,7 @@
 
 import { test, expect } from './fixtures';
 import { Page } from '@playwright/test';
-import { WIRE_PROTOCOL } from '@kurisu/models';
+import { WIRE_PROTOCOL } from '@amadeus/models';
 import { MOCK_BACKEND_VERSION } from './mock/server';
 
 async function login(page: Page) {

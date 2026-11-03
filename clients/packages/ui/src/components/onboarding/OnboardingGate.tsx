@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Box, CircularProgress } from '@mui/material';
-import { apiClient } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
 import { OnboardingDialog } from './OnboardingDialog';
 
 /**

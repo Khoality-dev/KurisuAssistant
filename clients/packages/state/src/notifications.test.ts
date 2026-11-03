@@ -9,9 +9,9 @@
  * or opening the conversation it points to — is the server's to record.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { installBridge, resetBridge } from '@kurisu/platform/testing';
-import { apiClient, notificationSocket, storage, type NotificationSocketListener } from '@kurisu/api';
-import type { NotificationEvent, NotificationTarget } from '@kurisu/models';
+import { installBridge, resetBridge } from '@amadeus/platform/testing';
+import { apiClient, notificationSocket, storage, type NotificationSocketListener } from '@amadeus/api';
+import type { NotificationEvent, NotificationTarget } from '@amadeus/models';
 import { useCalendarStore } from './calendarStore';
 import { useConversationStore } from './conversationStore';
 import { useLayoutStore } from './layoutStore';

@@ -7,14 +7,14 @@ import {
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { ResizeHandle } from '../layout/ResizeHandle';
-import { useLayoutStore } from '@kurisu/state';
+import { useLayoutStore } from '@amadeus/state';
 import { getFileIcon } from './FileIcon';
 import { SearchBar, Highlight } from './SearchPanel';
-import type { FileEntry } from '@kurisu/models';
-import { useExplorerStore } from '@kurisu/state';
-import { DRIVE_ROOT_LABEL, dirnameOf, fileSource, isDrivePath } from '@kurisu/api';
+import type { FileEntry } from '@amadeus/models';
+import { useExplorerStore } from '@amadeus/state';
+import { DRIVE_ROOT_LABEL, dirnameOf, fileSource, isDrivePath } from '@amadeus/api';
 import { DriveQuotaBar } from './DriveQuotaBar';
-import { requireFiles, resolveBridge } from '@kurisu/platform';
+import { requireFiles, resolveBridge } from '@amadeus/platform';
 import { findScope } from '../findScope';
 
 interface TreeNode {
@@ -39,7 +39,7 @@ interface FileTreeSidebarProps {
    * What the tree is rooted at. Omitted, it follows the editor's workspace
    * folder, which is what editor mode wants.
    *
-   * Passing `''` gives the **sources** tree: this computer's roots and Kurisu
+   * Passing `''` gives the **sources** tree: this computer's roots and Amadeus
    * Drive side by side, which is what the browse page shows. That listing is
    * composed in `fileSource`, not in the main process — `explorerIPC` enumerates
    * this machine's own drives and cannot know a server exists.

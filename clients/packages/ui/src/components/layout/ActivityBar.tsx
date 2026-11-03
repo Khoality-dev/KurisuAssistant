@@ -15,11 +15,11 @@ import {
   Logout as LogoutIcon,
   SwapVert as TransfersIcon,
 } from '@mui/icons-material';
-import { useLayoutStore, type ActivePage } from '@kurisu/state';
-import { useConnectionStatus } from '@kurisu/hooks';
-import { wsManager } from '@kurisu/api';
-import { useAuthStore } from '@kurisu/state';
-import { useTransferStore } from '@kurisu/state';
+import { useLayoutStore, type ActivePage } from '@amadeus/state';
+import { useConnectionStatus } from '@amadeus/hooks';
+import { wsManager } from '@amadeus/api';
+import { useAuthStore } from '@amadeus/state';
+import { useTransferStore } from '@amadeus/state';
 
 interface NavItem {
   id: ActivePage;

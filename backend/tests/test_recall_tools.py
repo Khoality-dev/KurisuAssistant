@@ -21,14 +21,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from kurisuassistant.tools import tool_registry
-from kurisuassistant.tools.drive import DriveWriteTool
-from kurisuassistant.tools.recall import (
+from amadeus.tools import tool_registry
+from amadeus.tools.drive import DriveWriteTool
+from amadeus.tools.recall import (
     RecallRegexTool,
     RecallSemanticTool,
 )
-from kurisuassistant.utils import embeddings as embedding_service
-from kurisuassistant.utils import indexing
+from amadeus.utils import embeddings as embedding_service
+from amadeus.utils import indexing
 from tests.mock_ollama import EMBED_DIMENSIONS
 
 pytestmark = pytest.mark.db
@@ -38,7 +38,7 @@ EMBED_MODEL = "mock-embedder"
 
 @pytest.fixture(autouse=True)
 def drive_root(tmp_path, monkeypatch):
-    from kurisuassistant.utils import drive_storage
+    from amadeus.utils import drive_storage
 
     monkeypatch.setattr(drive_storage, "DRIVE_DIR", tmp_path / "drive")
     return tmp_path / "drive"
@@ -58,10 +58,10 @@ def embedder(mock_ollama, monkeypatch):
 @pytest.fixture()
 def accounts(system_db):
     """Two activated accounts, so "not yours" can be tested at all."""
-    from kurisuassistant.core.accounts import provision_user
-    from kurisuassistant.core.security import hash_password
-    from kurisuassistant.db.repositories import UserRepository
-    from kurisuassistant.db.session import get_session
+    from amadeus.core.accounts import provision_user
+    from amadeus.core.security import hash_password
+    from amadeus.db.repositories import UserRepository
+    from amadeus.db.session import get_session
 
     ids = []
     for _ in range(2):
@@ -77,7 +77,7 @@ def accounts(system_db):
 
 @pytest.fixture()
 def db(system_client):
-    from kurisuassistant.db.service import get_db_service
+    from amadeus.db.service import get_db_service
 
     return get_db_service()
 
@@ -85,7 +85,7 @@ def db(system_client):
 def _conversation(db, user_id, title, turns, *, when=None, compacted_up_to=None):
     """A conversation with ``turns`` as (role, text) pairs, indexed. Returns
     ``(conversation_id, [message ids])``."""
-    from kurisuassistant.db.models import Conversation, Message
+    from amadeus.db.models import Conversation, Message
 
     def _make(session):
         conv = Conversation(user_id=user_id, title=title)
@@ -114,7 +114,7 @@ async def _file(db, user_id, path, content):
     """A drive file written through the assistant's own tool, then indexed."""
     result = await DriveWriteTool().execute({"user_id": user_id, "path": path, "content": content})
     assert "Written to" in result, result
-    from kurisuassistant.db.repositories import DriveNodeRepository
+    from amadeus.db.repositories import DriveNodeRepository
 
     node_id = db.execute_sync(lambda s: DriveNodeRepository(s).resolve_path(user_id, path).id)
     indexing.chunk_drive_file(user_id, node_id)
@@ -266,8 +266,8 @@ class TestDocuments:
 
     async def test_a_pdf_hit_cites_the_page(self, db, accounts, drive_root):
         from tests.test_extraction import _pdf_bytes
-        from kurisuassistant.db.repositories import DriveNodeRepository
-        from kurisuassistant.utils import drive_storage
+        from amadeus.db.repositories import DriveNodeRepository
+        from amadeus.utils import drive_storage
 
         owner, _ = accounts
         data = _pdf_bytes(["Page one about cats", "Page two mentions the tortoise"])

@@ -23,8 +23,8 @@ import {
   FileDownload as ExportIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
-import type { Skill } from '@kurisu/models';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
+import type { Skill } from '@amadeus/models';
 
 const MotionCard = motion(Card);
 

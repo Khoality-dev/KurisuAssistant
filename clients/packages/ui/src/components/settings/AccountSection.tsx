@@ -15,12 +15,12 @@ import {
   VisibilityOff as HideIcon,
   QrCode2 as QrCodeIcon,
 } from '@mui/icons-material';
-import { knownTimezones, useAuthStore } from '@kurisu/state';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { knownTimezones, useAuthStore } from '@amadeus/state';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
 import { ModelPicker } from '../ModelPicker';
 import { LoginQrDialog } from './LoginQrDialog';
 import { VersionRows } from './VersionRows';
-import type { UserProfile } from '@kurisu/models';
+import type { UserProfile } from '@amadeus/models';
 
 const ApiKeyField: React.FC<{
   label: string;

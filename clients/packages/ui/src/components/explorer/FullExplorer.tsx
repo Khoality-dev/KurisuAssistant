@@ -40,11 +40,11 @@ import { SearchBar, Highlight } from './SearchPanel';
 import { ExplorerContextMenus } from './ExplorerContextMenus';
 import { ExplorerDialogs } from './ExplorerDialogs';
 import { FileTreeSidebar } from './FileTreeSidebar';
-import type { FileEntry } from '@kurisu/models';
-import { useExplorerStore } from '@kurisu/state';
-import { useFileOperations } from '@kurisu/hooks';
-import { useTransferStore } from '@kurisu/state';
-import { requireFiles, requireTransfers, resolveBridge } from '@kurisu/platform';
+import type { FileEntry } from '@amadeus/models';
+import { useExplorerStore } from '@amadeus/state';
+import { useFileOperations } from '@amadeus/hooks';
+import { useTransferStore } from '@amadeus/state';
+import { requireFiles, requireTransfers, resolveBridge } from '@amadeus/platform';
 import {
   DRIVE_ROOT,
   DRIVE_ROOT_LABEL,
@@ -53,7 +53,7 @@ import {
   drivePathSegments,
   fileSource,
   isDrivePath,
-} from '@kurisu/api';
+} from '@amadeus/api';
 
 const OPERATING_SYSTEM = resolveBridge().os ?? 'win32';
 const LOCAL_SEP = OPERATING_SYSTEM === 'win32' ? '\\' : '/';
@@ -475,7 +475,7 @@ export const FullExplorer: React.FC = () => {
   const breadcrumbSegments: { label: string; path: string }[] = [];
   if (isDrivePath(currentPath)) {
     // The drive's own crumb comes first, so its trail reads the way the
-    // sidebar does: Kurisu Drive › Reports › weekly.
+    // sidebar does: Amadeus Drive › Reports › weekly.
     breadcrumbSegments.push({ label: DRIVE_ROOT_LABEL, path: DRIVE_ROOT });
     let accumulated = DRIVE_ROOT;
     for (const part of drivePathSegments(currentPath)) {
@@ -508,7 +508,7 @@ export const FullExplorer: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      {/* Sources: this computer and Kurisu Drive, one tree. */}
+      {/* Sources: this computer and Amadeus Drive, one tree. */}
       <FileTreeSidebar rootPath="" showQuota />
 
       <Box
@@ -979,7 +979,7 @@ export const FullExplorer: React.FC = () => {
                     <TableRow>
                       <TableCell colSpan={4} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
                         {onDrive
-                          ? 'This folder is empty. Upload from the toolbar, drop files here, or ask Kurisu to put something in it.'
+                          ? 'This folder is empty. Upload from the toolbar, drop files here, or ask Amadeus to put something in it.'
                           : 'Empty directory'}
                       </TableCell>
                     </TableRow>

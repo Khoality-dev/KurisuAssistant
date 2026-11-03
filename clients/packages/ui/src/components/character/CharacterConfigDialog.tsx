@@ -38,7 +38,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
 import {
   migrateEdgeToTransitions,
   migratePoseTreeIds,
@@ -50,7 +50,7 @@ import {
   type Persona,
   type PoseConfig,
   type PoseTree,
-} from '@kurisu/models';
+} from '@amadeus/models';
 import PoseGraphNode from '../PoseGraphNode';
 import type { PoseGraphNodeData } from '../PoseGraphNode';
 import { PoseNodeEditor } from './PoseNodeEditor';
@@ -491,7 +491,7 @@ export const CharacterConfigDialog: React.FC<CharacterConfigDialogProps> = ({
   };
 
   // ─── Pose editor save ───
-  const handlePoseEditorSave = (poseConfig: PoseConfig, name: string, animationSettings: import('@kurisu/models').AnimationSettings) => {
+  const handlePoseEditorSave = (poseConfig: PoseConfig, name: string, animationSettings: import('@amadeus/models').AnimationSettings) => {
     if (!editingNodeId) return;
 
     // Update animation node map

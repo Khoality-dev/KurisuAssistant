@@ -53,7 +53,7 @@ test.
 | `object-src 'none'`, `frame-src 'none'`, `form-action 'none'`, `base-uri 'self'` | Nothing here embeds plugins, frames anything, submits a form, or rewrites the document base. |
 
 **Checked for the VRM stage, and left alone** (#240). A 3D persona adds a
-lazily imported chunk (`import('@kurisu/vrm')`), a model fetched as bytes and
+lazily imported chunk (`import('@amadeus/vrm')`), a model fetched as bytes and
 parsed with `GLTFLoader.parse` — never loaded by URL — and textures the loader
 hands to the GPU through `blob:` object URLs. `script-src 'self'` covers the
 chunk, which the packaged `file:` handler serves as JavaScript;

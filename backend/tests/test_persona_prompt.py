@@ -9,9 +9,9 @@ exists only when the block was sent, so a prompt that asks without a reader
 (or the reverse) would show tags to the user. No model is involved.
 """
 
-from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, AgentContext
-from kurisuassistant.agents.main import EXPRESSION_PROMPT, MainAgent
-from kurisuassistant.tools import ToolRegistry
+from amadeus.agents.base import AssistantConfig, PersonaConfig, AgentContext
+from amadeus.agents.main import EXPRESSION_PROMPT, MainAgent
+from amadeus.tools import ToolRegistry
 
 
 def agent(character_config):

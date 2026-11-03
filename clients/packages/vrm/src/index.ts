@@ -1,8 +1,8 @@
 /**
- * `@kurisu/vrm` — the VRM character driver.
+ * `@amadeus/vrm` — the VRM character driver.
  *
- * Import this lazily (`await import('@kurisu/vrm')`) after `supportsWebGL`
- * from `@kurisu/vrm/probe` says the display can draw: this entry carries
+ * Import this lazily (`await import('@amadeus/vrm')`) after `supportsWebGL`
+ * from `@amadeus/vrm/probe` says the display can draw: this entry carries
  * three.js, and a 2D-only user's bundle should not. The probe deliberately
  * lives behind its own subpath so that asking the question never loads the
  * engine.

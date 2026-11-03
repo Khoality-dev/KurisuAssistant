@@ -14,7 +14,7 @@
  * stepped by hand and its draw calls are read back from a recording context.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PoseTree } from '@kurisu/models';
+import type { PoseTree } from '@amadeus/models';
 
 // Images arrive through the authenticated cache; here every URL is a tagged
 // object so a draw call says which patch it drew.
@@ -22,7 +22,7 @@ vi.mock('./ImageCache', () => ({
   getCachedImage: async (url: string) => fakeImage(url),
   clearImageCache: () => {},
 }));
-vi.mock('@kurisu/api', () => ({ fetchAuthedBlob: vi.fn() }));
+vi.mock('@amadeus/api', () => ({ fetchAuthedBlob: vi.fn() }));
 
 import { CanvasCompositor } from './CanvasCompositor';
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { VrmEmotion, VrmEmotionSettings } from '@kurisu/models';
-import { VRM_EMOTIONS } from '@kurisu/models';
+import type { VrmEmotion, VrmEmotionSettings } from '@amadeus/models';
+import { VRM_EMOTIONS } from '@amadeus/models';
 import {
   appliedWeights,
   createExpressionState,

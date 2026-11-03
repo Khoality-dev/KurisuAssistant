@@ -8,8 +8,8 @@
  * which one, which reads it; a notification read on another device is taken
  * down here by the same id.
  *
- * Under the e2e suite (`KURISU_E2E`) what was shown and taken down is also
- * recorded on `globalThis.__kurisuNotifications`, with a `click(i)` that does
+ * Under the e2e suite (`AMADEUS_E2E`) what was shown and taken down is also
+ * recorded on `globalThis.__amadeusNotifications`, with a `click(i)` that does
  * what the user's click would: an OS notification is not something a test can
  * see.
  */
@@ -37,8 +37,8 @@ export function registerNotificationIPC(focusMainWindow: () => BrowserWindow | n
     window?.webContents.send('notifications:open', { target: request.target, id: request.id });
   };
 
-  if (process.env.KURISU_E2E) {
-    (globalThis as any).__kurisuNotifications = {
+  if (process.env.AMADEUS_E2E) {
+    (globalThis as any).__amadeusNotifications = {
       shown,
       closed,
       click: (index: number) => open(shown[index]),
@@ -52,7 +52,7 @@ export function registerNotificationIPC(focusMainWindow: () => BrowserWindow | n
       body: String(request?.body ?? '').slice(0, 1000),
       target: request?.target ?? { kind: 'app' },
     };
-    if (process.env.KURISU_E2E) shown.push(shownRequest);
+    if (process.env.AMADEUS_E2E) shown.push(shownRequest);
     if (!Notification.isSupported()) return false;
 
     live.get(shownRequest.id)?.close();
@@ -68,7 +68,7 @@ export function registerNotificationIPC(focusMainWindow: () => BrowserWindow | n
 
   ipcMain.handle('notifications:close', (_event, ids: unknown) => {
     for (const id of Array.isArray(ids) ? ids : []) {
-      if (process.env.KURISU_E2E) closed.push(Number(id));
+      if (process.env.AMADEUS_E2E) closed.push(Number(id));
       const notification = live.get(Number(id));
       live.delete(Number(id));
       notification?.close();

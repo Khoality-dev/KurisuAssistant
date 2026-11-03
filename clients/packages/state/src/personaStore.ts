@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { apiClient } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
 import { useConversationStore } from './conversationStore';
-import type { Persona } from '@kurisu/models';
+import type { Persona } from '@amadeus/models';
 
 interface PersonaState {
   personas: Persona[];

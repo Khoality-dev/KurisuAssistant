@@ -1,6 +1,6 @@
-import type { FileEntry } from '@kurisu/models';
+import type { FileEntry } from '@amadeus/models';
 import { create } from 'zustand';
-import { dirnameOf, fileSource } from '@kurisu/api';
+import { dirnameOf, fileSource } from '@amadeus/api';
 
 export interface OpenFile {
   path: string;
@@ -131,7 +131,7 @@ export function isImageFile(filename: string): boolean {
 export const useExplorerStore = create<ExplorerState>((set, get) => ({
   openFiles: [],
   activeFileIndex: -1,
-  viewMode: (localStorage.getItem('kurisu_explorer_view') as ExplorerViewMode) || 'list',
+  viewMode: (localStorage.getItem('amadeus_explorer_view') as ExplorerViewMode) || 'list',
   workspaceRoot: '',
   selections: [],
   liveSelections: [],
@@ -277,7 +277,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
 
   setViewMode: (mode) => {
-    localStorage.setItem('kurisu_explorer_view', mode);
+    localStorage.setItem('amadeus_explorer_view', mode);
     set({ viewMode: mode });
   },
 

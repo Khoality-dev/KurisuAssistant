@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KurisuAssistant"
+rootProject.name = "Amadeus"
 include(":app")

@@ -8,7 +8,14 @@
  * server sends what is unread; then each new notification, and each read.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WIRE_PROTOCOL, WS_AUTH_SUBPROTOCOL, WS_WIRE_PROTOCOL_MISMATCH } from '@kurisu/models';
+import {
+  LEGACY_WS_AUTH_SUBPROTOCOL,
+  LEGACY_WS_WIRE_SUBPROTOCOL_PREFIX,
+  WIRE_PROTOCOL,
+  WS_AUTH_SUBPROTOCOL,
+  WS_WIRE_SUBPROTOCOL_PREFIX,
+  WS_WIRE_PROTOCOL_MISMATCH,
+} from '@amadeus/models';
 import { NotificationSocket } from './notificationSocket';
 
 class FakeSocket {
@@ -21,6 +28,10 @@ class FakeSocket {
   closed: { code?: number } | null = null;
 
   constructor(public url: string, public protocols: string[]) {
+    // As a browser does: a repeated subprotocol fails the constructor.
+    if (new Set(protocols).size !== protocols.length) {
+      throw new SyntaxError(`Failed to construct 'WebSocket': a subprotocol is duplicated.`);
+    }
     FakeSocket.instances.push(this);
   }
 
@@ -76,16 +87,17 @@ describe('NotificationSocket', () => {
 
   function make() {
     const seen: Array<[string, unknown]> = [];
+    const refreshToken = vi.fn(async () => 'fresh-token');
     const socket = new NotificationSocket({
-      baseUrl: () => 'https://kurisu.example:8443',
-      refreshToken: vi.fn(async () => 'fresh-token'),
+      baseUrl: () => 'https://amadeus.example:8443',
+      refreshToken,
     });
     socket.subscribe({
       onSync: (unread) => seen.push(['sync', unread.map((n) => n.id)]),
       onNotification: (n) => seen.push(['new', n.id]),
       onRead: (ids) => seen.push(['read', ids]),
     });
-    return { socket, seen };
+    return { socket, seen, refreshToken };
   }
 
   it('connects only while it is on and someone is signed in', () => {
@@ -95,8 +107,12 @@ describe('NotificationSocket', () => {
 
     socket.setEnabled(true);
     expect(FakeSocket.instances).toHaveLength(1);
-    expect(last().url).toBe('wss://kurisu.example:8443/ws/notifications');
-    expect(last().protocols).toEqual([WS_AUTH_SUBPROTOCOL, 't1', `kurisu.wire.${WIRE_PROTOCOL}`]);
+    expect(last().url).toBe('wss://amadeus.example:8443/ws/notifications');
+    expect(last().protocols).toEqual([
+      WS_AUTH_SUBPROTOCOL,
+      't1',
+      `${WS_WIRE_SUBPROTOCOL_PREFIX}${WIRE_PROTOCOL}`,
+    ]);
   });
 
   it('hands over what is unread on connect, then each new one and each read', () => {
@@ -150,13 +166,29 @@ describe('NotificationSocket', () => {
     vi.advanceTimersByTime(30_000);
 
     expect(FakeSocket.instances).toHaveLength(2);
-    expect(last().url).toBe('wss://kurisu.example:8443/ws/notifications');
+    expect(last().url).toBe('wss://amadeus.example:8443/ws/notifications');
   });
 
-  it('refreshes a refused token rather than retrying it', async () => {
+  it('retries the legacy-only offer before refreshing, so it works with an older server', async () => {
+    const { socket, refreshToken } = make();
+    socket.setEnabled(true);
+    socket.setToken('stale');
+    last().serverClose(4001, 'Unauthorized');
+
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(last().protocols).toEqual([
+      LEGACY_WS_AUTH_SUBPROTOCOL,
+      'stale',
+      `${LEGACY_WS_WIRE_SUBPROTOCOL_PREFIX}${WIRE_PROTOCOL}`,
+    ]);
+    expect(refreshToken).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a token refused under both spellings', async () => {
     const { socket } = make();
     socket.setEnabled(true);
     socket.setToken('stale');
+    last().serverClose(4001, 'Unauthorized');
     last().serverClose(4001, 'Unauthorized');
     await vi.runAllTimersAsync();
     socket.setToken('fresh-token');

@@ -89,11 +89,11 @@ describe('apiClient character uploads', () => {
   it('PUTs the raw bytes with their digest and the file name', async () => {
     const seen: InternalAxiosRequestConfig[] = [];
     axiosInstance.defaults.adapter = respond(200, { model_url: '/character-assets/3/vrm/model' }, seen);
-    const file = new File(['abc'], 'kurisu.vrm');
+    const file = new File(['abc'], 'amadeus.vrm');
     await apiClient.uploadCharacterModel(3, file);
     expect(seen[0].method).toBe('put');
     expect(seen[0].url).toBe('/character-assets/3/vrm/model');
-    expect(seen[0].params).toEqual({ sha256: ABC, filename: 'kurisu.vrm' });
+    expect(seen[0].params).toEqual({ sha256: ABC, filename: 'amadeus.vrm' });
     expect(seen[0].timeout).toBe(0);
   });
 

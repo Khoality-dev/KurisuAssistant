@@ -14,12 +14,12 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from kurisuassistant.utils import embeddings as embedding_service
-from kurisuassistant.utils import indexing
-from kurisuassistant.utils.embeddings import TransientEmbedError
-from kurisuassistant.workers import service as worker_module
-from kurisuassistant.workers.service import BackgroundService, _index_key
-from kurisuassistant.workers.tasks import ChunkConversationTask, ChunkDriveFileTask, EmbedPassagesTask
+from amadeus.utils import embeddings as embedding_service
+from amadeus.utils import indexing
+from amadeus.utils.embeddings import TransientEmbedError
+from amadeus.workers import service as worker_module
+from amadeus.workers.service import BackgroundService, _index_key
+from amadeus.workers.tasks import ChunkConversationTask, ChunkDriveFileTask, EmbedPassagesTask
 from tests.mock_ollama import EMBED_DIMENSIONS
 
 pytestmark = pytest.mark.db
@@ -29,7 +29,7 @@ EMBED_MODEL = "mock-embedder"
 
 @pytest.fixture(autouse=True)
 def drive_root(tmp_path, monkeypatch):
-    from kurisuassistant.utils import drive_storage
+    from amadeus.utils import drive_storage
 
     monkeypatch.setattr(drive_storage, "DRIVE_DIR", tmp_path / "drive")
     return tmp_path / "drive"
@@ -47,8 +47,8 @@ def embedder(mock_ollama, monkeypatch):
 
 @pytest.fixture()
 def db(system_client):
-    from kurisuassistant.db.models import User
-    from kurisuassistant.db.service import get_db_service
+    from amadeus.db.models import User
+    from amadeus.db.service import get_db_service
 
     svc = get_db_service()
     user_id = svc.execute_sync(lambda s: s.query(User).filter_by(username="tester").one().id)
@@ -56,7 +56,7 @@ def db(system_client):
 
 
 def _conversation(db, user_id, texts, *, roles=None):
-    from kurisuassistant.db.models import Conversation, Message
+    from amadeus.db.models import Conversation, Message
 
     def _make(session):
         conv = Conversation(user_id=user_id, title=uuid.uuid4().hex)
@@ -75,7 +75,7 @@ def _conversation(db, user_id, texts, *, roles=None):
 
 
 def _add_message(db, conv_id, text):
-    from kurisuassistant.db.models import Conversation, Message
+    from amadeus.db.models import Conversation, Message
 
     def _make(session):
         msg = Message(conversation_id=conv_id, role="user", message=text)
@@ -88,7 +88,7 @@ def _add_message(db, conv_id, text):
 
 
 def _passages(db, **where):
-    from kurisuassistant.db.models import Passage
+    from amadeus.db.models import Passage
 
     def _q(session):
         rows = session.query(Passage).filter_by(**where).order_by(Passage.id).all()
@@ -102,7 +102,7 @@ def _passages(db, **where):
 
 
 def _conversation_row(db, conv_id):
-    from kurisuassistant.db.models import Conversation
+    from amadeus.db.models import Conversation
 
     def _q(session):
         c = session.get(Conversation, conv_id)
@@ -112,8 +112,8 @@ def _conversation_row(db, conv_id):
 
 
 async def _drive_file(db, user_id, name, content: bytes, mime=None, parent_id=None):
-    from kurisuassistant.db.repositories import DriveNodeRepository
-    from kurisuassistant.utils import drive_storage
+    from amadeus.db.repositories import DriveNodeRepository
+    from amadeus.utils import drive_storage
 
     async def _chunks():
         yield content
@@ -125,8 +125,8 @@ async def _drive_file(db, user_id, name, content: bytes, mime=None, parent_id=No
 
 
 async def _replace_drive_file(db, user_id, node_id, content: bytes):
-    from kurisuassistant.db.repositories import DriveNodeRepository
-    from kurisuassistant.utils import drive_storage
+    from amadeus.db.repositories import DriveNodeRepository
+    from amadeus.utils import drive_storage
 
     async def _chunks():
         yield content
@@ -142,7 +142,7 @@ async def _replace_drive_file(db, user_id, node_id, content: bytes):
 
 
 def _node(db, node_id):
-    from kurisuassistant.db.models import DriveNode
+    from amadeus.db.models import DriveNode
 
     return db.execute_sync(lambda s: {
         "checksum": s.get(DriveNode, node_id).checksum,
@@ -200,7 +200,7 @@ class TestConversations:
         assert _conversation_row(svc, conv_id)["indexed_up_to_id"] == ids[-1]
 
     def test_deleting_from_a_message_takes_its_passages_and_needs_no_rewind(self, db):
-        from kurisuassistant.db.repositories import MessageRepository
+        from amadeus.db.repositories import MessageRepository
 
         svc, user_id = db
         conv_id, ids = _conversation(svc, user_id, ["keep", "drop me", "and me"])
@@ -215,7 +215,7 @@ class TestConversations:
         assert later > ids[-1], "ids are monotonic, which is why the watermark never rewinds"
 
     def test_deleting_a_conversation_takes_every_passage(self, db):
-        from kurisuassistant.db.repositories import ConversationRepository
+        from amadeus.db.repositories import ConversationRepository
 
         svc, user_id = db
         conv_id, _ = _conversation(svc, user_id, ["gone soon"])
@@ -288,7 +288,7 @@ class TestDriveFiles:
         assert indexing.chunk_drive_file(user_id, node_id) == 2
 
     async def test_deleting_the_node_takes_its_passages(self, db):
-        from kurisuassistant.db.repositories import DriveNodeRepository
+        from amadeus.db.repositories import DriveNodeRepository
 
         svc, user_id = db
         node_id = await _drive_file(svc, user_id, "gone.txt", b"soon gone")
@@ -308,7 +308,7 @@ class TestDriveFiles:
         assert _passages(svc, drive_node_id=node_id) == []
 
     async def test_the_citation_path_walks_up_the_tree(self, db):
-        from kurisuassistant.db.repositories import DriveNodeRepository
+        from amadeus.db.repositories import DriveNodeRepository
 
         svc, user_id = db
         # A unique root name: the test account is shared across the session and
@@ -332,7 +332,7 @@ class TestTheScan:
         assert (conv_id, user_id) in indexing.due_conversations(1000)
 
     def test_the_scan_is_bounded_and_oldest_first(self, db):
-        from kurisuassistant.db.models import Conversation
+        from amadeus.db.models import Conversation
 
         svc, user_id = db
         ids = []
@@ -397,7 +397,7 @@ class TestEmbedding:
 
         def refusing(texts):
             if "poison" in texts:
-                from kurisuassistant.utils.embeddings import PermanentEmbedError
+                from amadeus.utils.embeddings import PermanentEmbedError
                 raise PermanentEmbedError("400: cannot embed that")
             return real(texts)
 
@@ -411,8 +411,8 @@ class TestEmbedding:
             assert rows[fine]["embedded"] and rows[fine]["attempts"] == 0
 
     def test_a_row_refused_enough_times_leaves_the_backlog(self, db):
-        from kurisuassistant.db.repositories import PassageRepository
-        from kurisuassistant.db.repositories.passages import MAX_EMBED_ATTEMPTS
+        from amadeus.db.repositories import PassageRepository
+        from amadeus.db.repositories.passages import MAX_EMBED_ATTEMPTS
 
         svc, user_id = db
         conv_id, _ = _conversation(svc, user_id, ["hopeless"])

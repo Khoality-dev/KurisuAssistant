@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from kurisuassistant.core.timezone import parse_timezone, user_timezone
+from amadeus.core.timezone import parse_timezone, user_timezone
 
 
 class _User:
@@ -61,7 +61,7 @@ class TestCurrentTimeLine:
     def test_local_time_with_weekday_and_zone(self):
         from datetime import datetime
 
-        from kurisuassistant.core.timezone import local_time_label
+        from amadeus.core.timezone import local_time_label
 
         # 16:42 UTC on Friday 16 October 2026 is 18:42 in Paris (summer time).
         now = datetime(2026, 10, 16, 16, 42)

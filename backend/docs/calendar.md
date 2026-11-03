@@ -23,7 +23,7 @@ an entry there: whether the user typed it on the Calendar screen or said
 | `calendar/entries.py` | `validate` — what can be on a calendar — `apply_update` (move, rename, repeat, done), and `to_response` / `expand` / `coming_up`, which show a series as its times; the router and the tools all call them |
 | `routers/calendar.py` | `/calendar/*` (see `API.md` → Calendar) |
 | `tools/calendar.py` | `calendar_create`, `calendar_list`, `calendar_move`, `calendar_repeat`, `calendar_delete` |
-| `calendar/delivery.py` | One due reminder handed to `kurisuassistant.notifications.notify` (#353) |
+| `calendar/delivery.py` | One due reminder handed to `amadeus.notifications.notify` (#353) |
 | `workers/reminders.py` | The due-reminder scanner |
 
 ## An entry

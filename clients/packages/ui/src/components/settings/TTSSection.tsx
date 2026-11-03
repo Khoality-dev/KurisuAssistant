@@ -21,9 +21,9 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { useTTS } from '@kurisu/hooks';
-import { storage } from '@kurisu/api';
-import { apiClient } from '@kurisu/api';
+import { useTTS } from '@amadeus/hooks';
+import { storage } from '@amadeus/api';
+import { apiClient } from '@amadeus/api';
 
 interface ModelEntry {
   id: string;

@@ -5,7 +5,7 @@
  * does not say counts as changing something.
  */
 import { describe, expect, it } from 'vitest';
-import type { Tool } from '@kurisu/models';
+import type { Tool } from '@amadeus/models';
 import { buildToolCatalog } from './toolCatalog';
 
 const tool = (name: string, read_only?: boolean, description = ''): Tool => ({
@@ -29,10 +29,10 @@ describe('the tool catalogue', () => {
   });
 
   it('groups the server\'s own tools by feature', () => {
-    expect(catalog.kurisu.map((g) => [g.name, g.tools.map((t) => t.name)])).toEqual([
+    expect(catalog.amadeus.map((g) => [g.name, g.tools.map((t) => t.name)])).toEqual([
       ['Calendar', ['calendar_list', 'calendar_create']],
       ['Tasks', ['task_list', 'task_start']],
-      ['Kurisu Drive', ['drive_read', 'drive_write']],
+      ['Amadeus Drive', ['drive_read', 'drive_write']],
       ['History and recall', ['history_list', 'recall_regex']],
       ['Other', ['notify_user', 'get_skill_instructions']],
     ]);
@@ -52,7 +52,7 @@ describe('the tool catalogue', () => {
 
   it('tags each tool by whether it only looks, and an unsaid tool changes something', () => {
     const effect = (name: string) =>
-      [...catalog.kurisu, ...catalog.desktop].flatMap((g) => g.tools)
+      [...catalog.amadeus, ...catalog.desktop].flatMap((g) => g.tools)
         .concat(...Object.values(catalog.mcp))
         .find((t) => t.name === name)!.effect;
     expect(effect('drive_read')).toBe('reads');
@@ -65,7 +65,7 @@ describe('the tool catalogue', () => {
 
   it('leaves out an empty group', () => {
     const bare = buildToolCatalog({ serverTools: [tool('notify_user', true)], mcpServers: {}, clientTools: [], clientToolsByServer: {} });
-    expect(bare.kurisu.map((g) => g.name)).toEqual(['Other']);
+    expect(bare.amadeus.map((g) => g.name)).toEqual(['Other']);
     expect(bare.desktop).toEqual([]);
   });
 });

@@ -3,8 +3,8 @@ import base from './playwright.config';
 
 /**
  * The real-backend suite (#313): the specs under `tests/realBackend/`, against
- * a backend and mock Ollama already running (`KURISU_REAL_BACKEND_URL`,
- * `KURISU_MOCK_OLLAMA_URL`). `npm run test:e2e:real`; docs/testing.md.
+ * a backend and mock Ollama already running (`AMADEUS_REAL_BACKEND_URL`,
+ * `AMADEUS_MOCK_OLLAMA_URL`). `npm run test:e2e:real`; docs/testing.md.
  */
 export default defineConfig({
   ...base,

@@ -11,9 +11,9 @@
  * disagree about where the download is.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { resolveBridge } from '@kurisu/platform';
+import { resolveBridge } from '@amadeus/platform';
 
-export const RELEASES_URL = 'https://github.com/Khoality-dev/KurisuAssistant/releases/latest';
+export const RELEASES_URL = 'https://github.com/Khoality-dev/Amadeus/releases/latest';
 
 export type UpdateFlowState =
   | { status: 'idle' }

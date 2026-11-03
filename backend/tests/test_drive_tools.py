@@ -14,8 +14,8 @@ Needs Postgres (``POSTGRES_HOST``/``POSTGRES_PORT``; CI provides one).
 
 import pytest
 
-from kurisuassistant.tools import tool_registry
-from kurisuassistant.tools.drive import (
+from amadeus.tools import tool_registry
+from amadeus.tools.drive import (
     DriveDeleteTool,
     DriveListTool,
     DriveReadTool,
@@ -30,7 +30,7 @@ OTHER_ID = 2
 
 @pytest.fixture(autouse=True)
 def drive_root(tmp_path, monkeypatch):
-    from kurisuassistant.utils import drive_storage
+    from amadeus.utils import drive_storage
 
     monkeypatch.setattr(drive_storage, "DRIVE_DIR", tmp_path / "drive")
     return tmp_path / "drive"
@@ -39,10 +39,10 @@ def drive_root(tmp_path, monkeypatch):
 @pytest.fixture()
 def accounts(system_db):
     """Two activated accounts, so "not yours" can be tested at all."""
-    from kurisuassistant.core.accounts import provision_user
-    from kurisuassistant.core.security import hash_password
-    from kurisuassistant.db.repositories import UserRepository
-    from kurisuassistant.db.session import get_session
+    from amadeus.core.accounts import provision_user
+    from amadeus.core.security import hash_password
+    from amadeus.db.repositories import UserRepository
+    from amadeus.db.session import get_session
     import uuid
 
     ids = []
@@ -156,8 +156,8 @@ class TestWriteAndRead:
     async def test_reading_a_folder_points_at_drive_list(self, db_running, accounts):
         owner, _ = accounts
         await _write(owner, "/afolder-holder.md", "x")
-        from kurisuassistant.db.repositories import DriveNodeRepository
-        from kurisuassistant.db.service import get_db_service
+        from amadeus.db.repositories import DriveNodeRepository
+        from amadeus.db.service import get_db_service
 
         await get_db_service().execute(
             lambda s: DriveNodeRepository(s).create_folder(owner, None, "AFolder")
@@ -179,9 +179,9 @@ class TestWriteAndRead:
         self, db_running, accounts, drive_root
     ):
         owner, _ = accounts
-        from kurisuassistant.db.repositories import DriveNodeRepository
-        from kurisuassistant.db.service import get_db_service
-        from kurisuassistant.utils import drive_storage
+        from amadeus.db.repositories import DriveNodeRepository
+        from amadeus.db.service import get_db_service
+        from amadeus.utils import drive_storage
 
         async def _bytes():
             yield b"\x00\x01\x02\x03 not text"
@@ -247,8 +247,8 @@ class TestDelete:
         """"Delete the notes folder" must not quietly take a subtree nobody
         mentioned."""
         owner, _ = accounts
-        from kurisuassistant.db.repositories import DriveNodeRepository
-        from kurisuassistant.db.service import get_db_service
+        from amadeus.db.repositories import DriveNodeRepository
+        from amadeus.db.service import get_db_service
 
         folder = await get_db_service().execute(
             lambda s: DriveNodeRepository(s).create_folder(owner, None, "Keep").id
@@ -264,8 +264,8 @@ class TestDelete:
 
     async def test_recursive_takes_the_subtree(self, db_running, accounts, drive_root):
         owner, _ = accounts
-        from kurisuassistant.db.repositories import DriveNodeRepository
-        from kurisuassistant.db.service import get_db_service
+        from amadeus.db.repositories import DriveNodeRepository
+        from amadeus.db.service import get_db_service
 
         await get_db_service().execute(
             lambda s: DriveNodeRepository(s).create_folder(owner, None, "Sweep")
@@ -404,8 +404,8 @@ class TestModelSuppliedArguments:
 
     async def test_a_string_false_does_not_delete_a_folder(self, db_running, accounts):
         owner, _ = accounts
-        from kurisuassistant.db.repositories import DriveNodeRepository
-        from kurisuassistant.db.service import get_db_service
+        from amadeus.db.repositories import DriveNodeRepository
+        from amadeus.db.service import get_db_service
 
         await get_db_service().execute(
             lambda s: DriveNodeRepository(s).create_folder(owner, None, "Survives")
@@ -436,7 +436,7 @@ class TestListIsBounded:
     ):
         """`drive_read` is bounded and the history tools paginate; a folder with
         thousands of files must not be the one call that fills the window."""
-        from kurisuassistant.tools.drive import MAX_LIST_ENTRIES
+        from amadeus.tools.drive import MAX_LIST_ENTRIES
 
         owner, _ = accounts
         for i in range(MAX_LIST_ENTRIES + 15):

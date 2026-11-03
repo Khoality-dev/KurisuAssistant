@@ -68,8 +68,8 @@ VALUES (1, 1, 'ollama', false, false, true, NULL),
 
 
 def _admin_url() -> str:
-    user = os.getenv("POSTGRES_USER", "kurisu")
-    password = os.getenv("POSTGRES_PASSWORD", "kurisu")
+    user = os.getenv("POSTGRES_USER", "amadeus")
+    password = os.getenv("POSTGRES_PASSWORD", "amadeus")
     host = os.getenv("POSTGRES_HOST", "localhost")
     port = os.getenv("POSTGRES_PORT", "5432")
     return f"postgresql://{user}:{password}@{host}:{port}/postgres"
@@ -79,7 +79,7 @@ def _alembic_config(db_name: str):
     from alembic.config import Config
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_dir = os.path.join(here, "kurisuassistant", "db")
+    db_dir = os.path.join(here, "amadeus", "db")
     config = Config(os.path.join(db_dir, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(db_dir, "alembic"))
     os.environ["POSTGRES_DB"] = db_name
@@ -98,7 +98,7 @@ def seeded_db():
     except Exception as exc:  # pragma: no cover - environment dependent
         require_postgres(exc, "migration tests")
 
-    db_name = f"kurisu_mig_{uuid.uuid4().hex[:12]}"
+    db_name = f"amadeus_mig_{uuid.uuid4().hex[:12]}"
     previous_db = os.environ.get("POSTGRES_DB")
     with admin.connect() as conn:
         conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))

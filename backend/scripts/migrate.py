@@ -12,11 +12,11 @@ import dotenv
 
 # db.session reads POSTGRES_* at import time, so the environment file has to be
 # loaded first — otherwise a local `python -m scripts.migrate` silently migrates
-# whatever is at the hardcoded default (localhost:5432, kurisu/kurisu) instead of
+# whatever is at the hardcoded default (localhost:5432, amadeus/amadeus) instead of
 # the database configured for the deployment.
 dotenv.load_dotenv()
 
-from kurisuassistant.db.init import init_db
+from amadeus.db.init import init_db
 
 # Configure logging
 logging.basicConfig(

@@ -2,22 +2,22 @@
 #
 # For trying main against a running backend without touching a deployment. Run it
 # from the backend/ of the checkout you want to run — never from a deployment's
-# tree: this overlay mounts ./kurisuassistant over the image's copy and shares
+# tree: this overlay mounts ./amadeus over the image's copy and shares
 # ./data, so two projects in one directory would edit the deployment's code and
 # write into its user data.
 #
 #   cp /path/to/deployment/backend/.env .   # same credentials, separate database
 #   docker compose -f docker-compose.dev.yml up -d --build
 #
-# It is its own project (kurisuassistant-dev) with its own database and data/.
+# It is its own project (amadeus-dev) with its own database and data/.
 # See docs/development.md "Releases and Deployment".
 #
-# Duplicated for dev: the API (kurisu-api-dev), Postgres (postgres-dev, own
+# Duplicated for dev: the API (amadeus-api-dev), Postgres (postgres-dev, own
 # volume, own alembic_version) and ./data (images, avatars, character assets,
 # voice uploads, JWT secret). None of it is shared with production.
 #
 # Self-contained on purpose. It used to attach to two external networks —
-# `central` and production's `kurisuassistant_default` — to borrow that machine's
+# `central` and production's `amadeus_default` — to borrow that machine's
 # Ollama and GPU services, which meant this file, the one the contributor docs
 # tell you to run, could not start on a machine that had never run the
 # production stack. Set your account's Ollama URL to wherever your model server
@@ -27,7 +27,7 @@
 # Publishes API_DEV_PORT (15598) on loopback only, so it cannot collide with a
 # deployment's 15597.
 
-name: kurisuassistant-dev
+name: amadeus-dev
 
 services:
   api:
@@ -35,14 +35,14 @@ services:
       file: docker-compose.yml
       service: api
     # Container names are global on `central`, so it must differ from production's.
-    container_name: kurisu-api-dev
+    container_name: amadeus-api-dev
     # The source, mounted over what the image already carries — this is the one
     # place that happens, and it is why this overlay must not be run from a
     # deployment's tree. `--build` still bakes the code in; the mount is what
     # lets an edit take effect on `docker compose restart api` instead of a
     # rebuild. Appended to the base service's ./data mount.
     volumes:
-      - ./kurisuassistant:/app/kurisuassistant
+      - ./amadeus:/app/amadeus
       - ./scripts:/app/scripts
       - ./tests:/app/tests
       - ./pytest.ini:/app/pytest.ini
@@ -72,5 +72,5 @@ networks:
   default:
 
 volumes:
-  # Becomes kurisuassistant-dev_postgres-data — separate from production's.
+  # Becomes amadeus-dev_postgres-data — separate from production's.
   postgres-data:

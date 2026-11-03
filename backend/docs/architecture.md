@@ -9,7 +9,7 @@ if this file and the code disagree, the code is right and this file is a bug.
 that has nothing but Docker:
 
 - **api** (published on `API_PORT`, 15597) — the FastAPI app,
-  `kurisuassistant/main.py`. CPU-only by default.
+  `amadeus/main.py`. CPU-only by default.
 - **postgres** (internal 5432) — `pgvector/pgvector:pg16`. Not published; the
   API waits for its healthcheck before starting.
 
@@ -138,7 +138,7 @@ tools/
   base.py, registry.py   BaseTool and the global registry
   history.py             list and read past conversations
   recall.py              recall_regex / recall_semantic over the passage index
-  drive.py               the assistant's view of Kurisu Drive
+  drive.py               the assistant's view of Amadeus Drive
   calendar.py            calendar_create / _list / _move / _delete (#282)
   skills.py              on-demand skill lookup
   notify.py              notify_user: a notification on every device
@@ -245,7 +245,7 @@ key comes from `JWT_SECRET_KEY`, or is generated and persisted under `data/`.
 HTTP routes depend on `get_authenticated_user`. The WebSocket authenticates
 during the handshake, either with an `Authorization: Bearer` header or — for
 browser clients, which cannot set headers on a socket — by offering
-`kurisu.auth.bearer, <token>` as the subprotocol, which the server echoes on
+`amadeus.auth.bearer, <token>` as the subprotocol, which the server echoes on
 accept.
 
 Registration is open to anyone who can reach the server, and grants nothing: the
@@ -262,14 +262,14 @@ field does not bump it.
 Clients ship their own constant and check it against `GET /version` at startup.
 REST requests carry `X-Wire-Protocol` and a mismatch is rejected with 426. The
 WebSocket handshake enforces the same number: a client declares it with the same
-header, or — in a browser, which cannot set one — as a `kurisu.wire.<n>` entry in
+header, or — in a browser, which cannot set one — as a `amadeus.wire.<n>` entry in
 the subprotocol list alongside its token. A mismatch is closed with 4426 before
 authentication. Saying nothing is still allowed on both transports, so curl and
 internal tooling keep working.
 
 Releases are tags on `main`, not branches: `vX.Y.Z`, one tag for the backend and
 both clients (#256), and no file in the tree holds the number (#291): the image is
-stamped with `KURISU_VERSION` from `git describe --tags` when a deployment builds
+stamped with `AMADEUS_VERSION` from `git describe --tags` when a deployment builds
 it, and anything that is not a plain X.Y.Z reports itself as a dev build. The tag triggers the
 root `release.yml`, which builds and publishes the clients; the backend has no
 artifact — a deployment checks the tag out and rebuilds (see `development.md`,

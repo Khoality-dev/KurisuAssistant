@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import type { ParsedCharacterConfig, VrmSettings } from '@kurisu/models';
+import type { ParsedCharacterConfig, VrmSettings } from '@amadeus/models';
 import { ARM_DROP_RAD, createVrmDriver, type VrmDriver } from './VrmDriver';
 import { driverConformanceCases, IDLE_INPUT } from '../testing/conformance';
 import { fakeClipLoader, fakeModelLoader, fakeRendererFactory, type FakeVrm, type FakeVrmOptions } from '../testing/fakes';

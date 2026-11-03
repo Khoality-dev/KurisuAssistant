@@ -99,7 +99,7 @@ export async function startServer(config: MCPServerConfig): Promise<void> {
   }
 
   const client = new Client(
-    { name: `kurisu-${config.name}`, version: '1.0.0' },
+    { name: `amadeus-${config.name}`, version: '1.0.0' },
     { capabilities: {} },
   );
 

@@ -23,8 +23,8 @@
  * Pure apart from its timer, which is injectable: the hook cannot be rendered
  * in this package's tests, so the logic lives here where it can be driven.
  */
-import { stripNarration } from '@kurisu/api';
-import type { EmotionCue, EmotionCueRecord, Message, VrmEmotion } from '@kurisu/models';
+import { stripNarration } from '@amadeus/api';
+import type { EmotionCue, EmotionCueRecord, Message, VrmEmotion } from '@amadeus/models';
 
 /** A feeling inside a sentence group, as a fraction of the way through it. */
 export interface SegmentCue {

@@ -1,4 +1,4 @@
-"""The synthesis routes over kurisuassistant/speech (#227).
+"""The synthesis routes over amadeus/speech (#227).
 
 Every synthesis engine speaks the one contract, so these pin that dialect once
 — a multipart form with the clip uploaded — and what the clients get back,
@@ -23,7 +23,7 @@ def engines_configured(monkeypatch):
     when the system tests import the app — must not leak in."""
     monkeypatch.setenv("TTS_ENGINES", f"gpt-sovits={GPTSOVITS},vixtts={VIXTTS}")
     monkeypatch.delenv("TTS_DEFAULT_MODEL", raising=False)
-    from kurisuassistant.speech import synthesis
+    from amadeus.speech import synthesis
 
     synthesis._last_used.clear()
 
@@ -35,7 +35,7 @@ def voice(tmp_path, monkeypatch):
     storage.mkdir()
     clip = storage / "kurisu.wav"
     clip.write_bytes(wav(400))
-    monkeypatch.setattr("kurisuassistant.routers.tts.VOICE_STORAGE_DIR", storage)
+    monkeypatch.setattr("amadeus.routers.tts.VOICE_STORAGE_DIR", storage)
     return clip
 
 
@@ -53,16 +53,16 @@ class TestFindVoiceFile:
         storage = tmp_path / "voice_storage"
         storage.mkdir()
         (storage / f"abc123{extension}").write_bytes(b"RIFF")
-        monkeypatch.setattr("kurisuassistant.routers.tts.VOICE_STORAGE_DIR", storage)
-        from kurisuassistant.routers.tts import _find_voice_file
+        monkeypatch.setattr("amadeus.routers.tts.VOICE_STORAGE_DIR", storage)
+        from amadeus.routers.tts import _find_voice_file
 
         assert _find_voice_file("abc123") == storage / f"abc123{extension}"
 
     def test_returns_none_when_absent(self, tmp_path, monkeypatch):
         storage = tmp_path / "voice_storage"
         storage.mkdir()
-        monkeypatch.setattr("kurisuassistant.routers.tts.VOICE_STORAGE_DIR", storage)
-        from kurisuassistant.routers.tts import _find_voice_file
+        monkeypatch.setattr("amadeus.routers.tts.VOICE_STORAGE_DIR", storage)
+        from amadeus.routers.tts import _find_voice_file
 
         assert _find_voice_file("nothing") is None
 
@@ -92,7 +92,7 @@ class TestSynthesize:
     def test_a_name_with_no_file_is_a_preset_voice(self, client, tmp_path, monkeypatch):
         storage = tmp_path / "voice_storage"
         storage.mkdir()
-        monkeypatch.setattr("kurisuassistant.routers.tts.VOICE_STORAGE_DIR", storage)
+        monkeypatch.setattr("amadeus.routers.tts.VOICE_STORAGE_DIR", storage)
         engine = client_answering(response(content=wav(10)))
 
         with patch(SEAM, return_value=engine):
@@ -210,7 +210,7 @@ class TestResidency:
 
     def test_the_least_recently_used_engine_is_released_first(self, client, voice, monkeypatch):
         monkeypatch.setenv("TTS_ENGINES", f"gpt-sovits={GPTSOVITS},vixtts={VIXTTS},third=http://third:1")
-        from kurisuassistant.speech import synthesis
+        from amadeus.speech import synthesis
 
         synthesis._last_used.update({"vixtts": 100.0, "third": 50.0})
         engine = client_answering(

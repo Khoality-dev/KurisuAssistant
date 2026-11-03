@@ -3,7 +3,8 @@
  */
 
 import { config } from './config';
-import { newId, encodeVisionFrame, WIRE_PROTOCOL, WS_AUTH_SUBPROTOCOL, WS_WIRE_PROTOCOL_MISMATCH, WS_WIRE_SUBPROTOCOL_PREFIX, type EventType, type VrmEmotion } from '@kurisu/models';
+import { newId, encodeVisionFrame, WIRE_PROTOCOL, WS_WIRE_PROTOCOL_MISMATCH, type EventType, type VrmEmotion } from '@amadeus/models';
+import { webSocketProtocols } from './socketProtocols';
 
 
 // Base event interface
@@ -65,7 +66,7 @@ export interface StreamChunkEvent extends BaseEvent {
   // null otherwise. `emotion_at` is where it takes effect — an offset into
   // this LLM round's accumulated content (this chunk's `content` starts
   // there), in UTF-16 code units, i.e. `String.length`. Optional on the wire,
-  // so no protocol change. `StreamSpeechPlanner` (`@kurisu/hooks`) applies it
+  // so no protocol change. `StreamSpeechPlanner` (`@amadeus/hooks`) applies it
   // when the sentence is spoken (#244).
   emotion?: VrmEmotion | null;
   emotion_at?: number | null;
@@ -161,6 +162,8 @@ type EventHandler<T = ServerEvent> = (event: T) => void;
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected';
 type StatusHandler = (status: ConnectionStatus) => void;
 
+export { webSocketProtocols };
+
 class WebSocketManager {
   private ws: WebSocket | null = null;
   private token: string | null = null;
@@ -175,6 +178,7 @@ class WebSocketManager {
   private _maxReconnectDelay = 30000; // 30s cap
   private _intentionalClose = false;
   private _onProtocolMismatch: (() => void) | null = null;
+  private _useLegacyHandshake = false;
 
   /**
    * Set the authentication token.
@@ -190,6 +194,7 @@ class WebSocketManager {
    */
   clearToken() {
     this.token = null;
+    this._useLegacyHandshake = false;
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
@@ -230,13 +235,12 @@ class WebSocketManager {
       // A renderer cannot set headers on a WebSocket, so the wire protocol rides
       // along as a third subprotocol entry. The backend checks it before it
       // authenticates and closes with 4426 on a mismatch.
-      this.ws = new WebSocket(url, [
-        WS_AUTH_SUBPROTOCOL,
-        this.token!,
-        `${WS_WIRE_SUBPROTOCOL_PREFIX}${WIRE_PROTOCOL}`,
-      ]);
+      const legacyOnly = this._useLegacyHandshake;
+      let opened = false;
+      this.ws = new WebSocket(url, webSocketProtocols(this.token!, legacyOnly));
 
       this.ws.onopen = () => {
+        opened = true;
         this.isConnecting = false;
         this._reconnectAttempt = 0;
         this.setStatus('connected');
@@ -280,7 +284,17 @@ class WebSocketManager {
         this.connectionPromise = null;
         this.setStatus('disconnected');
 
+        if (!legacyOnly && (event.code === 4001 || !opened)) {
+          // A server predating the rename only recognises the old marker when
+          // it is first. Depending on the browser, its refusal is visible as
+          // either 4001 or a failed (1006) handshake with no selected protocol.
+          this._useLegacyHandshake = true;
+          this.connect().catch(() => {});
+          return;
+        }
+
         if (event.code === 4001) {
+          this._useLegacyHandshake = false;
           // Auth failure — try refresh then reconnect
           this._handleAuthFailure();
           return;
@@ -340,6 +354,7 @@ class WebSocketManager {
       this._reconnectTimer = null;
     }
     this._reconnectAttempt = 0;
+    this._useLegacyHandshake = false;
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;

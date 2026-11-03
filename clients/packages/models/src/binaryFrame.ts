@@ -1,7 +1,7 @@
 /**
  * The binary envelope webcam frames travel in.
  *
- * Mirrors `backend/kurisuassistant/websocket/binary.py`. A frame used to be
+ * Mirrors `backend/amadeus/websocket/binary.py`. A frame used to be
  * base64 JPEG inside a JSON event on the chat socket, so every frame cost a
  * third extra on the wire, a JSON parse on the server, and — the reason this
  * exists — a place in the send buffer ahead of the assistant's next token (#111).

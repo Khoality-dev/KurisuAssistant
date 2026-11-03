@@ -113,7 +113,7 @@ describe('the shared packages stay shareable', () => {
   });
 
   it('keeps the protocol package free of runtime dependencies', () => {
-    // @kurisu/models is the backend's shape and nothing else. A dependency here
+    // @amadeus/models is the backend's shape and nothing else. A dependency here
     // is a dependency of every app and every future one, so it needs a reason
     // and a conversation, not an npm install.
     expect(manifest('models').dependencies ?? {}).toEqual({});
@@ -121,7 +121,7 @@ describe('the shared packages stay shareable', () => {
 
   it('does not let the protocol package import a platform', () => {
     const offenders = sourceFiles(join(PACKAGES, 'models', 'src'))
-      .filter((file) => /@kurisu\/platform/.test(codeOf(file)))
+      .filter((file) => /@amadeus\/platform/.test(codeOf(file)))
       .map((file) => relative(PACKAGES, file));
 
     expect(offenders).toEqual([]);
@@ -165,20 +165,20 @@ describe('the layers point one way', () => {
   // api -> state -> hooks, and nothing points back up. A layer that reaches
   // upward is not a layer, and the app that imports it inherits everything it
   // dragged along.
-  // `@kurisu/vrm` is banned below `ui` as well: it carries three.js, and only
+  // `@amadeus/vrm` is banned below `ui` as well: it carries three.js, and only
   // the package that renders (and an app) may decide to load an engine. A
-  // banned name covers its subpaths — `@kurisu/vrm/probe` is engine-free, but
+  // banned name covers its subpaths — `@amadeus/vrm/probe` is engine-free, but
   // a layer that does not render has no display to ask about.
   const forbidden: Array<[string, string[]]> = [
-    ['models', ['@kurisu/api', '@kurisu/state', '@kurisu/hooks', '@kurisu/ui', '@kurisu/platform', '@kurisu/vrm', 'react']],
-    ['platform', ['@kurisu/api', '@kurisu/state', '@kurisu/hooks', '@kurisu/ui', '@kurisu/vrm', 'react']],
-    ['api', ['@kurisu/state', '@kurisu/hooks', '@kurisu/ui', '@kurisu/vrm', 'react']],
-    ['state', ['@kurisu/hooks', '@kurisu/ui', '@kurisu/vrm']],
-    ['hooks', ['@kurisu/ui', '@kurisu/vrm']],
+    ['models', ['@amadeus/api', '@amadeus/state', '@amadeus/hooks', '@amadeus/ui', '@amadeus/platform', '@amadeus/vrm', 'react']],
+    ['platform', ['@amadeus/api', '@amadeus/state', '@amadeus/hooks', '@amadeus/ui', '@amadeus/vrm', 'react']],
+    ['api', ['@amadeus/state', '@amadeus/hooks', '@amadeus/ui', '@amadeus/vrm', 'react']],
+    ['state', ['@amadeus/hooks', '@amadeus/ui', '@amadeus/vrm']],
+    ['hooks', ['@amadeus/ui', '@amadeus/vrm']],
     // The VRM driver sits beside `models`: it is imported by `ui` and by the
     // page an Android WebView hosts, so it may know the protocol's shapes and
     // nothing about a platform, a server, a store or a screen (#239).
-    ['vrm', ['@kurisu/platform', '@kurisu/api', '@kurisu/state', '@kurisu/hooks', '@kurisu/ui', 'react']],
+    ['vrm', ['@amadeus/platform', '@amadeus/api', '@amadeus/state', '@amadeus/hooks', '@amadeus/ui', 'react']],
   ];
 
   it.each(forbidden)('%s does not import what sits above it', (pkg, banned) => {
@@ -233,24 +233,24 @@ describe('three.js lives in one package', () => {
     expect([...imports.keys()].sort()).toEqual(['@pixiv/three-vrm', 'three', 'three/examples/jsm/loaders/GLTFLoader.js']);
   });
 
-  it('is reached only through its own package: nothing below ui may import @kurisu/vrm at all', () => {
+  it('is reached only through its own package: nothing below ui may import @amadeus/vrm at all', () => {
     const offenders: string[] = [];
     for (const pkg of ['models', 'platform', 'api', 'state', 'hooks']) {
       for (const [dep, files] of externalImportsOf(pkg)) {
-        if (/^@kurisu\/vrm(\/|$)/.test(dep)) offenders.push(`${pkg} imports ${dep} in ${files.join(', ')}`);
+        if (/^@amadeus\/vrm(\/|$)/.test(dep)) offenders.push(`${pkg} imports ${dep} in ${files.join(', ')}`);
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  it('reaches the engine from ui lazily: no static import of @kurisu/vrm in the screens', () => {
-    // `CharacterSurface` imports the engine with `import('@kurisu/vrm')` once a
+  it('reaches the engine from ui lazily: no static import of @amadeus/vrm in the screens', () => {
+    // `CharacterSurface` imports the engine with `import('@amadeus/vrm')` once a
     // VRM persona is on screen and the display passed the probe (#240). Any
     // static specifier — `import … from`, `export … from`, `import type`, or a
     // bare side-effect `import '…'` — of the package or a subpath of it other
     // than the engine-free `/probe` would put three.js (or its entry's side
     // effects) in the main window's chunk. Tests may import `/testing`.
-    const banned = /^@kurisu\/vrm(\/(?!probe$).*)?$/;
+    const banned = /^@amadeus\/vrm(\/(?!probe$).*)?$/;
     const statics = /(?:^|[\s;])(?:import|export)\s+(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g;
     const offenders: string[] = [];
     for (const file of sourceFiles(join(PACKAGES, 'ui', 'src'))) {
@@ -264,11 +264,11 @@ describe('three.js lives in one package', () => {
   });
 
   it('the lazy-import scan catches every static form, and lets the probe and a dynamic import through', () => {
-    const banned = /^@kurisu\/vrm(\/(?!probe$).*)?$/;
+    const banned = /^@amadeus\/vrm(\/(?!probe$).*)?$/;
     const statics = /(?:^|[\s;])(?:import|export)\s+(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g;
     // Built from a constant, so the layer scans above (which read this file too)
     // do not take the sample lines for real imports.
-    const VRM = '@kurisu/' + 'vrm';
+    const VRM = '@amadeus/' + 'vrm';
     const sample = [
       `import { createVrmDriver } from '${VRM}';`,
       `import type { VrmDriver } from '${VRM}';`,
@@ -279,11 +279,11 @@ describe('three.js lives in one package', () => {
       `type M = typeof import('${VRM}');`,
     ].join('\n');
     const hits = [...sample.matchAll(statics)].map((m) => m[1]).filter((spec) => banned.test(spec));
-    expect(hits).toEqual(['@kurisu/vrm', '@kurisu/vrm', '@kurisu/vrm/testing', '@kurisu/vrm']);
+    expect(hits).toEqual(['@amadeus/vrm', '@amadeus/vrm', '@amadeus/vrm/testing', '@amadeus/vrm']);
   });
 
   it('keeps the probe engine-free', () => {
-    // `@kurisu/vrm/probe` is what a surface asks before importing the engine;
+    // `@amadeus/vrm/probe` is what a surface asks before importing the engine;
     // the question must not carry the answer's weight.
     const probe = join(PACKAGES, 'vrm', 'src', 'probe.ts');
     expect([...externalImportsIn([probe], PACKAGES).keys()]).toEqual([]);

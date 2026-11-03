@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { fetchAuthedBlob } from '@kurisu/api';
+import { fetchAuthedBlob } from '@amadeus/api';
 
 export async function fetchAuthedObjectUrl(url: string): Promise<string> {
   return URL.createObjectURL(await fetchAuthedBlob(url));

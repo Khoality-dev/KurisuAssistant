@@ -27,7 +27,7 @@ def register(account, token, platform="android"):
 
 
 def send(account, **kwargs):
-    from kurisuassistant.notifications import notify
+    from amadeus.notifications import notify
 
     kwargs.setdefault("source", "assistant")
     kwargs.setdefault("title", "A title")
@@ -41,8 +41,8 @@ def mark_read(account, notification_id):
 
 
 def devices_of(account):
-    from kurisuassistant.db.models import NotificationDevice
-    from kurisuassistant.db.session import get_session
+    from amadeus.db.models import NotificationDevice
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         return sorted(d.fcm_token for d in session.query(NotificationDevice).filter_by(user_id=account.id))
@@ -61,7 +61,7 @@ class FakeFcm:
         token = body["message"]["token"]
         status, error = self.answers.get(token, (200, None))
         if status == 200:
-            return httpx.Response(200, json={"name": f"projects/kurisu-test/messages/{len(self.sent)}"})
+            return httpx.Response(200, json={"name": f"projects/amadeus-test/messages/{len(self.sent)}"})
         return httpx.Response(status, json={"error": {"status": error, "details": [{"errorCode": error}]}})
 
     def data(self):
@@ -70,11 +70,11 @@ class FakeFcm:
 
 @pytest.fixture
 def fcm(system_client):
-    from kurisuassistant.notifications import push
+    from amadeus.notifications import push
 
     fake = FakeFcm()
     push.configure(
-        project_id="kurisu-test",
+        project_id="amadeus-test",
         access_token=lambda: "test-access-token",
         transport=httpx.MockTransport(fake.handler),
     )
@@ -128,7 +128,7 @@ class TestPush:
 
         assert sorted(s["body"]["message"]["token"] for s in fcm.sent) == ["phone-1", "phone-2"]
         first = fcm.sent[0]
-        assert first["url"] == "https://fcm.googleapis.com/v1/projects/kurisu-test/messages:send"
+        assert first["url"] == "https://fcm.googleapis.com/v1/projects/amadeus-test/messages:send"
         assert first["auth"] == "Bearer test-access-token"
         message = first["body"]["message"]
         assert "notification" not in message, "data only: the app builds the system notification"
@@ -185,7 +185,7 @@ class TestPush:
 
 class TestPushOff:
     def test_without_credentials_nothing_is_pushed_and_nothing_breaks(self, account, monkeypatch):
-        from kurisuassistant.notifications import push
+        from amadeus.notifications import push
 
         push.configure(project_id=None)
         sent = []
@@ -197,7 +197,7 @@ class TestPushOff:
         assert resp.json()["notifications"][0]["title"] == "Stored anyway"
 
     def test_it_says_so_once_at_startup(self, monkeypatch, caplog):
-        from kurisuassistant.notifications import push
+        from amadeus.notifications import push
 
         monkeypatch.delenv("FCM_SERVICE_ACCOUNT_FILE", raising=False)
         push.configure(project_id=None)
@@ -209,7 +209,7 @@ class TestPushOff:
         assert len(lines) == 1
 
     def test_a_service_account_file_turns_it_on(self, monkeypatch, tmp_path):
-        from kurisuassistant.notifications import push
+        from amadeus.notifications import push
 
         key = tmp_path / "service-account.json"
         key.write_text(json.dumps({"type": "service_account", "project_id": "from-the-file"}))

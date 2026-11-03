@@ -34,11 +34,11 @@ from pathlib import Path
 import dotenv
 
 # db.session reads POSTGRES_* at import time, so the environment file has to be
-# loaded before anything under kurisuassistant.db is imported (as scripts.migrate).
+# loaded before anything under amadeus.db is imported (as scripts.migrate).
 dotenv.load_dotenv()
 
-from kurisuassistant.character import paths  # noqa: E402
-from kurisuassistant.character.references import directory_bytes  # noqa: E402
+from amadeus.character import paths  # noqa: E402
+from amadeus.character.references import directory_bytes  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +125,8 @@ def live_persona_ids() -> set[int]:
     """Every ``personas.id`` in the configured database."""
     from sqlalchemy import select
 
-    from kurisuassistant.db.models import Persona
-    from kurisuassistant.db.session import get_session
+    from amadeus.db.models import Persona
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         return {row[0] for row in session.execute(select(Persona.id))}

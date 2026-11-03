@@ -7,10 +7,10 @@ any conversation, answers as it. With none in use, ``persona_in_use`` answers
 with the assistant itself: no id, named "Assistant", no prompt of its own.
 """
 
-from kurisuassistant.agents.base import AgentContext, AssistantConfig, PersonaConfig
-from kurisuassistant.agents.main import MainAgent
-from kurisuassistant.agents.selection import ASSISTANT_NAME, persona_in_use
-from kurisuassistant.tools import ToolRegistry
+from amadeus.agents.base import AgentContext, AssistantConfig, PersonaConfig
+from amadeus.agents.main import MainAgent
+from amadeus.agents.selection import ASSISTANT_NAME, persona_in_use
+from amadeus.tools import ToolRegistry
 
 KURISU = PersonaConfig(id=1, name="Kurisu", system_prompt="Be sarcastic.")
 MAYURI = PersonaConfig(id=2, name="Mayuri")

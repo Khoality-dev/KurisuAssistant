@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, AgentContext
-from kurisuassistant.agents.main import MainAgent
-from kurisuassistant.tools import ToolRegistry
+from amadeus.agents.base import AssistantConfig, PersonaConfig, AgentContext
+from amadeus.agents.main import MainAgent
+from amadeus.tools import ToolRegistry
 
 
 def agent():
@@ -74,7 +74,7 @@ class TestCallToolDepthGuard:
 
 class TestImageSizeLimit:
     def test_an_oversized_upload_is_refused(self):
-        from kurisuassistant.utils import images
+        from amadeus.utils import images
 
         upload = MagicMock()
         upload.file = io.BytesIO(b"\x00" * (images.MAX_IMAGE_BYTES + 1024))
@@ -84,7 +84,7 @@ class TestImageSizeLimit:
         assert exc.value.status_code == 413
 
     def test_the_read_is_bounded_rather_than_truncating(self):
-        from kurisuassistant.utils.images import _read_bounded
+        from amadeus.utils.images import _read_bounded
 
         with pytest.raises(HTTPException):
             _read_bounded(io.BytesIO(b"x" * 101), limit=100)
@@ -93,7 +93,7 @@ class TestImageSizeLimit:
 
     def test_a_missing_content_type_does_not_crash(self):
         """content_type was assumed non-null, so its absence raised a 500."""
-        from kurisuassistant.utils import images
+        from amadeus.utils import images
 
         upload = MagicMock()
         upload.content_type = None
@@ -105,7 +105,7 @@ class TestImageSizeLimit:
 
     def test_base64_images_are_bounded_too(self):
         """These arrive over the socket, so they need the same ceiling."""
-        from kurisuassistant.utils.images import MAX_IMAGE_BYTES, save_image_from_base64
+        from amadeus.utils.images import MAX_IMAGE_BYTES, save_image_from_base64
 
         oversized = "A" * ((MAX_IMAGE_BYTES * 4) // 3 + 100)
         with pytest.raises(ValueError, match="maximum allowed size"):
@@ -117,7 +117,7 @@ class TestImageSizeLimit:
 # ---------------------------------------------------------------------------
 
 def orchestrator_with(rows):
-    from kurisuassistant.mcp_tools.orchestrator import UserMCPOrchestrator
+    from amadeus.mcp_tools.orchestrator import UserMCPOrchestrator
 
     orchestrator = UserMCPOrchestrator(user_id=1)
     db = MagicMock()
@@ -131,7 +131,7 @@ SSE_ROW = ("remote", "sse", "https://example.test/sse", None, None, None)
 class TestOrchestratorReusesClients:
     def test_an_unchanged_server_keeps_its_client(self):
         orchestrator, db = orchestrator_with([SSE_ROW])
-        with patch("kurisuassistant.db.service.get_db_service", lambda: db):
+        with patch("amadeus.db.service.get_db_service", lambda: db):
             orchestrator._load_servers()
             first = orchestrator._server_clients["remote"]
             orchestrator._load_servers()
@@ -141,7 +141,7 @@ class TestOrchestratorReusesClients:
 
     def test_a_changed_server_is_rebuilt(self):
         orchestrator, db = orchestrator_with([SSE_ROW])
-        with patch("kurisuassistant.db.service.get_db_service", lambda: db):
+        with patch("amadeus.db.service.get_db_service", lambda: db):
             orchestrator._load_servers()
             first = orchestrator._server_clients["remote"]
 
@@ -155,7 +155,7 @@ class TestOrchestratorReusesClients:
 
     def test_a_removed_server_is_dropped(self):
         orchestrator, db = orchestrator_with([SSE_ROW])
-        with patch("kurisuassistant.db.service.get_db_service", lambda: db):
+        with patch("amadeus.db.service.get_db_service", lambda: db):
             orchestrator._load_servers()
             db.execute_sync.return_value = []
             orchestrator._load_servers()
@@ -174,7 +174,7 @@ class TestSigningKeyLocation:
         invalidating every issued token."""
         import inspect
 
-        from kurisuassistant.core import security
+        from amadeus.core import security
 
         source = inspect.getsource(security._load_or_create_secret)
         assert 'Path("data/jwt_secret.key")' not in source
@@ -185,7 +185,7 @@ class TestSigningKeyLocation:
         with ``DATA_DIR`` moved to a directory of its own (#307)."""
         import inspect
 
-        from kurisuassistant.core import paths
+        from amadeus.core import paths
 
         assert paths.PROJECT_ROOT.is_absolute()
         assert 'DATA_DIR = PROJECT_ROOT / "data"' in inspect.getsource(paths)
@@ -198,7 +198,7 @@ class TestSigningKeyLocation:
 class TestToolRoundCapIsAnnounced:
     async def test_the_user_is_told_the_turn_was_truncated(self):
         """The stream used to just stop, indistinguishable from a finished answer."""
-        from kurisuassistant.agents import main as main_module
+        from amadeus.agents import main as main_module
 
         class FakeMessage:
             def __init__(self):
@@ -219,7 +219,7 @@ class TestToolRoundCapIsAnnounced:
         a = agent()
         ctx = AgentContext(user_id=1, conversation_id=1, permission_mode="full")
 
-        with patch("kurisuassistant.models.llm.create_llm_provider", return_value=Provider()), \
+        with patch("amadeus.models.llm.create_llm_provider", return_value=Provider()), \
              patch.object(MainAgent, "execute_tool", new_callable=AsyncMock) as mock_exec, \
              patch.object(main_module, "MAX_TOOL_ROUNDS", 2, create=True):
             mock_exec.return_value = MagicMock(content="ok", status="success", images=[])

@@ -200,7 +200,7 @@ class TestMidReply:
         assert tail == [("user", "second"), ("user", "third")]
 
     def test_a_full_queue_refuses_the_next_message(self, account, mock_ollama):
-        from kurisuassistant.websocket.handlers import MAX_QUEUED_MESSAGES
+        from amadeus.websocket.handlers import MAX_QUEUED_MESSAGES
 
         mock_ollama.state.script(Reply(content=SLOW, delay_ms=50))
         with account.socket() as ws:

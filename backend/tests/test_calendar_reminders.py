@@ -14,18 +14,18 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from kurisuassistant.calendar import delivery
-from kurisuassistant.workers import reminders
+from amadeus.calendar import delivery
+from amadeus.workers import reminders
 
 pytestmark = pytest.mark.db
 
 
 @pytest.fixture()
 def user_id(system_client, monkeypatch):
-    from kurisuassistant.core.accounts import provision_user
-    from kurisuassistant.core.security import hash_password
-    from kurisuassistant.db.repositories import UserRepository
-    from kurisuassistant.db.session import get_session
+    from amadeus.core.accounts import provision_user
+    from amadeus.core.security import hash_password
+    from amadeus.db.repositories import UserRepository
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         user = UserRepository(session).create_user(f"cal-due-{uuid.uuid4().hex[:8]}", hash_password("x"))
@@ -36,7 +36,7 @@ def user_id(system_client, monkeypatch):
     # The account's zone, as calendar/zone.zone_for reads it.
     from zoneinfo import ZoneInfo
 
-    from kurisuassistant.calendar import zone
+    from amadeus.calendar import zone
 
     monkeypatch.setattr(zone, "zone_for", lambda user: ZoneInfo("America/Los_Angeles"))
     return made
@@ -54,8 +54,8 @@ def delivered(monkeypatch):
 
 
 def _entry(user_id, title, *, at, kind="reminder", done=False):
-    from kurisuassistant.db.models import CalendarEntry
-    from kurisuassistant.db.session import get_session
+    from amadeus.db.models import CalendarEntry
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         row = CalendarEntry(
@@ -69,8 +69,8 @@ def _entry(user_id, title, *, at, kind="reminder", done=False):
 
 
 def _row(entry_id):
-    from kurisuassistant.db.models import CalendarEntry
-    from kurisuassistant.db.session import get_session
+    from amadeus.db.models import CalendarEntry
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         row = session.get(CalendarEntry, entry_id)
@@ -138,9 +138,9 @@ def test_deliver_hands_the_reminder_to_notifications(monkeypatch):
     async def notify(user_id, **kwargs):
         sent.append((user_id, kwargs))
 
-    fake = types.ModuleType("kurisuassistant.notifications")
+    fake = types.ModuleType("amadeus.notifications")
     fake.notify = notify
-    monkeypatch.setitem(sys.modules, "kurisuassistant.notifications", fake)
+    monkeypatch.setitem(sys.modules, "amadeus.notifications", fake)
 
     asyncio.run(delivery.deliver({
         "id": 7, "user_id": 3, "title": "Call Mom",

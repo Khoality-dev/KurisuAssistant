@@ -10,8 +10,8 @@ import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
-import type { VoiceBarPhase } from '@kurisu/hooks';
-import { getMicAmplitude } from '@kurisu/state';
+import type { VoiceBarPhase } from '@amadeus/hooks';
+import { getMicAmplitude } from '@amadeus/state';
 
 /** The window before an interaction ends (#253); the top line drains over it. */
 const WINDOW_MS = 30_000;

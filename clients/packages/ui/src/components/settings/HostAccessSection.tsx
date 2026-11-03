@@ -16,8 +16,8 @@ import {
   Build as BuildIcon,
   Schedule as ScheduleIcon,
 } from '@mui/icons-material';
-import { refreshClientMCPServers } from '@kurisu/state';
-import { requireHostTools, resolveBridge } from '@kurisu/platform';
+import { refreshClientMCPServers } from '@amadeus/state';
+import { requireHostTools, resolveBridge } from '@amadeus/platform';
 import { DesktopProgramsPanel } from './DesktopProgramsPanel';
 
 export const HostAccessSection: React.FC = () => {

@@ -10,15 +10,15 @@ from fastapi.testclient import TestClient
 
 
 def test_health_names_the_service():
-    from kurisuassistant.main import app
+    from amadeus.main import app
 
     response = TestClient(app).get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "kurisuassistant"}
+    assert response.json() == {"status": "ok", "service": "amadeus"}
 
 
 def test_openapi_title_is_the_project_name():
-    from kurisuassistant.main import app
+    from amadeus.main import app
 
-    assert app.title == "KurisuAssistant API"
+    assert app.title == "Amadeus API"
     assert "LLM" not in app.description

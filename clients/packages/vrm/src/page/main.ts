@@ -2,14 +2,14 @@
  * The character page's DOM half (#245): the canvas, the frame loop, and the
  * two ways a native host talks to the page.
  *
- * In: `window.__kurisu.push(message)` (what `evaluateJavascript` calls), or a
- * `MessagePort` handed over once with `postMessage('kurisu:port', [port])`
+ * In: `window.__amadeus.push(message)` (what `evaluateJavascript` calls), or a
+ * `MessagePort` handed over once with `postMessage('amadeus:port', [port])`
  * after which every message arrives on the port as a JSON string.
- * Out: the `KurisuNative` JavaScript interface's `ready()`, `firstFrame()` and
+ * Out: the `AmadeusNative` JavaScript interface's `ready()`, `firstFrame()` and
  * `error(code, message)` when the host installed it, else the port.
  *
  * `document.documentElement.dataset.status` mirrors the runtime's status and
- * `window.__kurisu.events` records what was sent, so a test can watch the page
+ * `window.__amadeus.events` records what was sent, so a test can watch the page
  * without being a native host.
  */
 import { supportsWebGL } from '../probe';
@@ -17,21 +17,21 @@ import { createVrmDriver } from '../driver/VrmDriver';
 import type { PageEvent } from './host';
 import { createPageRuntime, type PageStatus, type PageSubtitle } from './runtime';
 
-interface KurisuNativeBridge {
+interface AmadeusNativeBridge {
   ready(): void;
   firstFrame(): void;
   error(code: string, message: string): void;
 }
 
-interface KurisuPageApi {
+interface AmadeusPageApi {
   push(message: unknown): void;
   readonly events: PageEvent[];
 }
 
 declare global {
   interface Window {
-    KurisuNative?: KurisuNativeBridge;
-    __kurisu?: KurisuPageApi;
+    AmadeusNative?: AmadeusNativeBridge;
+    __amadeus?: AmadeusPageApi;
   }
 }
 
@@ -50,7 +50,7 @@ let port: MessagePort | null = null;
 
 function emit(event: PageEvent): void {
   events.push(event);
-  const native = window.KurisuNative;
+  const native = window.AmadeusNative;
   try {
     if (native) {
       if (event.t === 'ready') native.ready();
@@ -83,7 +83,7 @@ function showSubtitle(subtitle: PageSubtitle | null): void {
 if (!supportsWebGL()) {
   showStatus('nogl', null);
   emit({ t: 'error', code: 'nogl', message: SENTENCES.nogl! });
-  window.__kurisu = { push() {}, events };
+  window.__amadeus = { push() {}, events };
 } else {
   const runtime = createPageRuntime({
     createDriver: () => {
@@ -115,13 +115,13 @@ if (!supportsWebGL()) {
 
   window.addEventListener('message', (event) => {
     // One port, once: the host's channel is the only one this page listens on.
-    if (port || event.data !== 'kurisu:port' || !event.ports?.[0]) return;
+    if (port || event.data !== 'amadeus:port' || !event.ports?.[0]) return;
     port = event.ports[0];
     port.onmessage = (m) => runtime.receive(m.data);
   });
   window.addEventListener('pagehide', () => runtime.dispose());
 
-  window.__kurisu = { push: (message) => runtime.receive(message), events };
+  window.__amadeus = { push: (message) => runtime.receive(message), events };
   showStatus('idle', null);
   emit({ t: 'ready' });
 }

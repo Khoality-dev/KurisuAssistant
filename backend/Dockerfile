@@ -23,14 +23,14 @@ RUN pip install -r requirements.txt
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 COPY scripts /app/scripts
-COPY kurisuassistant /app/kurisuassistant
+COPY amadeus /app/amadeus
 
 # The release this image is (#291): `git describe --tags` in the checkout it was
 # built from, passed by Compose. A release tag reads as that release; anything
 # else, or nothing, reports itself as a dev build. Last, so a new version reuses
 # every layer above.
-ARG KURISU_VERSION=
-ENV KURISU_VERSION=${KURISU_VERSION}
+ARG AMADEUS_VERSION=
+ENV AMADEUS_VERSION=${AMADEUS_VERSION}
 
 # Runtime state lives here and is bind-mounted by Compose; the directory is
 # created so the image is still runnable on its own.

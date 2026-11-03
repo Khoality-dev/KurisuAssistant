@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from kurisuassistant.routers import auth
+from amadeus.routers import auth
 
 PROXY = "10.0.0.9"
 

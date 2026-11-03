@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ParsedCharacterConfig, PoseTree, SpeechSegment } from '@kurisu/models';
+import type { ParsedCharacterConfig, PoseTree, SpeechSegment } from '@amadeus/models';
 import {
   characterFeed,
   characterSurfaceWanted,
@@ -143,8 +143,8 @@ describe('the character store', () => {
     // The old count comparison could not see this: same shape, a different image.
     setPersona(1, { name: 'Kurisu', avatarUuid: null, character: poseGraph('/character-assets/1/b/base') });
     expect(useCharacterStore.getState().personas).not.toBe(first);
-    setPersona(1, { name: 'Amadeus', avatarUuid: null, character: poseGraph('/character-assets/1/b/base') });
-    expect(useCharacterStore.getState().personas.get(1)?.name).toBe('Amadeus');
+    setPersona(1, { name: 'Kurisu', avatarUuid: null, character: poseGraph('/character-assets/1/b/base') });
+    expect(useCharacterStore.getState().personas.get(1)?.name).toBe('Kurisu');
   });
 
   it('a surface is wanted when either the window or the inline panel shows', () => {

@@ -10,11 +10,11 @@
 import { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CharacterDriver, ParsedCharacterConfig, PoseTree, VrmAssetRef, VrmSettings } from '@kurisu/models';
-import type { CharacterPersona } from '@kurisu/state';
+import type { CharacterDriver, ParsedCharacterConfig, PoseTree, VrmAssetRef, VrmSettings } from '@amadeus/models';
+import type { CharacterPersona } from '@amadeus/state';
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   fetchAuthedBytes: vi.fn(async () => new ArrayBuffer(0)),
 }));
 

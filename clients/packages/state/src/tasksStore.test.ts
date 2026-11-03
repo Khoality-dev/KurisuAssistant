@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { AssistantTask, TaskApproval } from '@kurisu/models';
+import type { AssistantTask, TaskApproval } from '@amadeus/models';
 
 /**
  * The Tasks screen (#352): tasks grouped by what they are doing, a filter over
@@ -12,8 +12,8 @@ const handlers: Record<string, (event: unknown) => void> = {};
 let serverTasks: AssistantTask[] = [];
 let serverApprovals: TaskApproval[] = [];
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   apiClient: {
     listTasks: vi.fn(async () => serverTasks),
     listTaskApprovals: vi.fn(async () => serverApprovals),
@@ -35,7 +35,7 @@ vi.mock('@kurisu/api', async (importOriginal) => ({
   },
 }));
 
-import { apiClient } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
 import { TASK_FILTERS, formatNextRun, groupTasks, useTasksStore } from './tasksStore';
 
 function task(id: number, status: AssistantTask['status'], title = `task ${id}`): AssistantTask {

@@ -17,7 +17,7 @@ import { MockBackend } from './mock/server';
 let dir: string;
 
 test.beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-local-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-local-'));
   fs.writeFileSync(path.join(dir, 'notes.txt'), 'first line');
   fs.mkdirSync(path.join(dir, 'Projects'));
 });

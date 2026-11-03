@@ -1,8 +1,8 @@
 {
-  "name": "kurisu-assistant-client",
+  "name": "amadeus-client",
   "version": "0.0.1",
-  "description": "KurisuAssistant Desktop Client with React + Electron",
-  "homepage": "https://github.com/Khoality-dev/KurisuAssistant",
+  "description": "Amadeus desktop client, with React + Electron",
+  "homepage": "https://github.com/Khoality-dev/Amadeus",
   "author": {
     "name": "Khoality-dev",
     "email": "khoality-dev@users.noreply.github.com"
@@ -40,12 +40,12 @@
   "dependencies": {
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
-    "@kurisu/api": "*",
-    "@kurisu/hooks": "*",
-    "@kurisu/models": "*",
-    "@kurisu/platform": "*",
-    "@kurisu/state": "*",
-    "@kurisu/ui": "*",
+    "@amadeus/api": "*",
+    "@amadeus/hooks": "*",
+    "@amadeus/models": "*",
+    "@amadeus/platform": "*",
+    "@amadeus/state": "*",
+    "@amadeus/ui": "*",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@monaco-editor/react": "^4.7.0",
     "@mui/icons-material": "^5.15.6",
@@ -89,8 +89,8 @@
     "ws": "^8.20.0"
   },
   "build": {
-    "appId": "com.kurisu.assistant",
-    "productName": "KurisuAssistant",
+    "appId": "com.amadeus.assistant",
+    "productName": "Amadeus",
     "directories": {
       "output": "release"
     },
@@ -121,7 +121,7 @@
       {
         "provider": "github",
         "owner": "Khoality-dev",
-        "repo": "KurisuAssistant",
+        "repo": "Amadeus",
         "releaseType": "release"
       }
     ]

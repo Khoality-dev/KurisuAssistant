@@ -36,11 +36,11 @@ import {
   CameraAlt as CameraAltIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
-import { useVisionStore } from '@kurisu/state';
-import { useWebcamCapture } from '@kurisu/hooks';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
+import { useVisionStore } from '@amadeus/state';
+import { useWebcamCapture } from '@amadeus/hooks';
 import { FaceCreateDialog } from './FaceCreateDialog';
-import type { FaceIdentity, FaceIdentityDetail } from '@kurisu/models';
+import type { FaceIdentity, FaceIdentityDetail } from '@amadeus/models';
 
 const MotionCard = motion(Card);
 

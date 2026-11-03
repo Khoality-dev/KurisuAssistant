@@ -17,7 +17,7 @@ import {
   CHARACTER_PANEL_MIN_HEIGHT,
   onCharacterFeed,
   useCharacterStore,
-} from '@kurisu/state';
+} from '@amadeus/state';
 import { CharacterStack } from './CharacterStack';
 import { SubtitleQueue, type SubtitleView } from './subtitleQueue';
 

@@ -17,8 +17,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kurisuassistant.routers import character, ws
-from kurisuassistant.version import WIRE_PROTOCOL
+from amadeus.routers import character, ws
+from amadeus.version import WIRE_PROTOCOL
 
 
 # ---------------------------------------------------------------------------
@@ -28,24 +28,24 @@ from kurisuassistant.version import WIRE_PROTOCOL
 class TestMcpTlsVerification:
     def test_verification_is_on_by_default(self, monkeypatch):
         monkeypatch.delenv("MCP_TLS_VERIFY", raising=False)
-        module = importlib.reload(importlib.import_module("kurisuassistant.mcp_tools.orchestrator"))
+        module = importlib.reload(importlib.import_module("amadeus.mcp_tools.orchestrator"))
         assert module._VERIFY_TLS is True
 
     @pytest.mark.parametrize("value", ["false", "0", "no", "off"])
     def test_an_operator_can_opt_out(self, monkeypatch, value):
         monkeypatch.setenv("MCP_TLS_VERIFY", value)
-        module = importlib.reload(importlib.import_module("kurisuassistant.mcp_tools.orchestrator"))
+        module = importlib.reload(importlib.import_module("amadeus.mcp_tools.orchestrator"))
         assert module._VERIFY_TLS is False
 
     def test_an_unrecognised_value_stays_secure(self, monkeypatch):
         """Anything that is not an explicit opt-out keeps verification on."""
         monkeypatch.setenv("MCP_TLS_VERIFY", "maybe")
-        module = importlib.reload(importlib.import_module("kurisuassistant.mcp_tools.orchestrator"))
+        module = importlib.reload(importlib.import_module("amadeus.mcp_tools.orchestrator"))
         assert module._VERIFY_TLS is True
 
     def test_the_client_factory_honours_the_setting(self, monkeypatch):
         monkeypatch.delenv("MCP_TLS_VERIFY", raising=False)
-        module = importlib.reload(importlib.import_module("kurisuassistant.mcp_tools.orchestrator"))
+        module = importlib.reload(importlib.import_module("amadeus.mcp_tools.orchestrator"))
         client = module._httpx_factory()
         try:
             assert client._transport is not None
@@ -158,6 +158,13 @@ class TestWebSocketTokenSource:
         assert token == "abc.def.ghi"
         assert subprotocol == ws.WS_AUTH_SUBPROTOCOL, "the selection must be echoed on accept"
 
+    def test_legacy_subprotocol_is_accepted_and_echoed_for_compatibility(self):
+        token, subprotocol = handshake(
+            {"sec-websocket-protocol": "kurisu.auth.bearer, abc.def.ghi"}
+        )
+        assert token == "abc.def.ghi"
+        assert subprotocol == "kurisu.auth.bearer"
+
     def test_query_string_is_no_longer_a_credential_source(self):
         """The regression: a token in the URL is recorded by every proxy in the path."""
         socket = MagicMock()
@@ -205,11 +212,15 @@ class TestWebSocketWireProtocol:
     def test_a_browser_can_declare_it_as_a_subprotocol(self):
         """A browser cannot set a header on a WebSocket, so it uses the same channel
         it already uses for the token."""
-        offered = f"{ws.WS_AUTH_SUBPROTOCOL}, abc.def.ghi, kurisu.wire.{WIRE_PROTOCOL}"
+        offered = f"{ws.WS_AUTH_SUBPROTOCOL}, abc.def.ghi, amadeus.wire.{WIRE_PROTOCOL}"
+        assert self.protocol({"sec-websocket-protocol": offered}) == WIRE_PROTOCOL
+
+    def test_a_legacy_client_can_declare_its_wire_subprotocol(self):
+        offered = f"kurisu.auth.bearer, abc.def.ghi, kurisu.wire.{WIRE_PROTOCOL}"
         assert self.protocol({"sec-websocket-protocol": offered}) == WIRE_PROTOCOL
 
     def test_the_token_still_parses_when_a_version_is_offered(self):
-        offered = f"{ws.WS_AUTH_SUBPROTOCOL}, abc.def.ghi, kurisu.wire.{WIRE_PROTOCOL}"
+        offered = f"{ws.WS_AUTH_SUBPROTOCOL}, abc.def.ghi, amadeus.wire.{WIRE_PROTOCOL}"
         token, subprotocol = handshake({"sec-websocket-protocol": offered})
         assert token == "abc.def.ghi"
         assert subprotocol == ws.WS_AUTH_SUBPROTOCOL

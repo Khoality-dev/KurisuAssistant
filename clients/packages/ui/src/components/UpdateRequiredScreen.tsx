@@ -1,8 +1,8 @@
 import React from 'react';
 import { Box, Button, LinearProgress, Typography, Stack } from '@mui/material';
-import { WIRE_PROTOCOL, type ServerVersionInfo } from '@kurisu/models';
-import { describeMismatch, mismatchSide } from '@kurisu/api';
-import { resolveBridge } from '@kurisu/platform';
+import { WIRE_PROTOCOL, type ServerVersionInfo } from '@amadeus/models';
+import { describeMismatch, mismatchSide } from '@amadeus/api';
+import { resolveBridge } from '@amadeus/platform';
 import { RELEASES_URL, useUpdateFlow, type UpdateFlowState } from './useUpdateFlow';
 
 interface Props {

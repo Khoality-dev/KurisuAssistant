@@ -21,7 +21,7 @@ import {
   Save as SaveIcon,
   ViewInAr as ModelIcon,
 } from '@mui/icons-material';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
 import {
   parseCharacterConfig,
   type CharacterConfigDTO,
@@ -30,7 +30,7 @@ import {
   type PersonaCreate,
   type PersonaUpdate,
   type VoiceInfo,
-} from '@kurisu/models';
+} from '@amadeus/models';
 import { CharacterConfigDialog } from '../character/CharacterConfigDialog';
 import { VrmSetupDialog } from '../character/VrmSetupDialog';
 import { mb, modelFilename } from '../character/vrmSetupText';

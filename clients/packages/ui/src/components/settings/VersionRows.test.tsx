@@ -5,8 +5,8 @@
 import { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { installBridge, resetBridge } from '@kurisu/platform/testing';
-import { WIRE_PROTOCOL, type ServerVersionInfo } from '@kurisu/models';
+import { installBridge, resetBridge } from '@amadeus/platform/testing';
+import { WIRE_PROTOCOL, type ServerVersionInfo } from '@amadeus/models';
 import { VersionRows } from './VersionRows';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

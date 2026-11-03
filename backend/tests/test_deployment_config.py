@@ -228,7 +228,7 @@ def test_every_setting_the_server_reads_reaches_the_container():
     """
     source_files = [
         path
-        for path in (BACKEND / "kurisuassistant").rglob("*.py")
+        for path in (BACKEND / "amadeus").rglob("*.py")
         # Migrations pin their own history, and `core/mcp_tools/` is MCP servers
         # installed at runtime — third-party code whose own env reads are not
         # this deployment's business.
@@ -254,7 +254,7 @@ def test_every_setting_the_server_reads_reaches_the_container():
     # Baked into the image at build time (a build arg, then ENV in the Dockerfile),
     # never passed at run time: an `environment:` entry would override the stamped
     # value with whatever the shell had on the next plain `up` (#291).
-    built_in = {"KURISU_VERSION"}
+    built_in = {"AMADEUS_VERSION"}
     missing = sorted(read_by_server - passed_in - built_in)
     assert missing == [], (
         f"the server reads {missing} but the api service never receives them"
@@ -278,7 +278,7 @@ def test_the_server_has_no_chat_provider_settings_of_its_own():
     assert [n for n in per_account if re.search(rf"^#?\s*{n}=", template, re.M)] == []
     readers = sorted(
         str(path.relative_to(BACKEND))
-        for path in (BACKEND / "kurisuassistant").rglob("*.py")
+        for path in (BACKEND / "amadeus").rglob("*.py")
         if "alembic/versions" not in str(path)
         and any(name in path.read_text() for name in per_account)
     )
@@ -315,7 +315,7 @@ def test_the_bundled_proxy_documents_what_the_api_must_trust():
 def test_dockerfile_copies_the_application_in():
     """The image is the artefact; it has to carry the code (#98)."""
     text = (BACKEND / "Dockerfile").read_text()
-    assert "COPY kurisuassistant" in text
+    assert "COPY amadeus" in text
     assert "COPY scripts" in text
 
 

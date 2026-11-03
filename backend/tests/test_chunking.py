@@ -8,7 +8,7 @@ numbers a citation shows point at the right lines.
 
 import pytest
 
-from kurisuassistant.utils.chunking import Chunk, chunk_text
+from amadeus.utils.chunking import Chunk, chunk_text
 
 
 def _covers(text: str, chunks) -> bool:

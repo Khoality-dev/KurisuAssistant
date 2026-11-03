@@ -5,8 +5,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { WIRE_PROTOCOL } from '@kurisu/models';
-import { installBridge, resetBridge } from '@kurisu/platform/testing';
+import { WIRE_PROTOCOL } from '@amadeus/models';
+import { installBridge, resetBridge } from '@amadeus/platform/testing';
 import { describeRequestFailure } from './requestFailure';
 import { storage } from './storage';
 
@@ -17,7 +17,7 @@ describe('describeRequestFailure', () => {
     // The desktop host: the address is the user's, so the sentence can name it.
     installBridge({ capabilities: { configurableServer: true } });
     savedUrl = storage.getBackendUrl();
-    storage.setBackendUrl('https://kurisu.example:15597');
+    storage.setBackendUrl('https://amadeus.example:15597');
   });
 
   afterEach(() => {
@@ -54,7 +54,7 @@ describe('describeRequestFailure', () => {
 
   it('says no server answers on a 404', () => {
     const err = { response: { status: 404, data: '<html>nginx</html>' } };
-    expect(describeRequestFailure(err)).toBe('No KurisuAssistant server answers at this address (HTTP 404).');
+    expect(describeRequestFailure(err)).toBe('No Amadeus server answers at this address (HTTP 404).');
   });
 
   it.each([502, 503, 504])('blames the proxy on a %d', (status) => {
@@ -77,14 +77,14 @@ describe('describeRequestFailure', () => {
   it('names the origin when nothing answered', () => {
     const err = { request: {}, code: 'ERR_NETWORK', message: 'Network Error' };
     expect(describeRequestFailure(err)).toBe(
-      'Nothing answered at https://kurisu.example:15597. Check the address and that the server is running.',
+      'Nothing answered at https://amadeus.example:15597. Check the address and that the server is running.',
     );
   });
 
   it('treats a refused connection the same way', () => {
     const err = { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 127.0.0.1:15597' };
     expect(describeRequestFailure(err)).toBe(
-      'Nothing answered at https://kurisu.example:15597. Check the address and that the server is running.',
+      'Nothing answered at https://amadeus.example:15597. Check the address and that the server is running.',
     );
   });
 
@@ -102,7 +102,7 @@ describe('describeRequestFailure', () => {
   });
 
   it("falls back to the error's own message for anything else", () => {
-    expect(describeRequestFailure(new Error('QR code is not a Kurisu login code'))).toBe('QR code is not a Kurisu login code');
+    expect(describeRequestFailure(new Error('QR code is not an Amadeus login code'))).toBe('QR code is not an Amadeus login code');
   });
 
   it("uses the caller's fallback when there is no message at all", () => {

@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
-import type { VrmCamera } from '@kurisu/models';
+import type { VrmCamera } from '@amadeus/models';
 
 /** The slice of `THREE.WebGLRenderer` the driver uses; a fake implements this. */
 export interface StageRenderer {

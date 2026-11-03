@@ -1,7 +1,7 @@
 # Database
 
 Postgres, via `pgvector/pgvector:pg16`. Eleven tables, defined in
-`kurisuassistant/db/models.py`. That file is the source of truth; this one
+`amadeus/db/models.py`. That file is the source of truth; this one
 describes it.
 
 ## Schema
@@ -70,7 +70,7 @@ face_identities id, user_id→users, name, created_at                 unique (us
 face_photos     id, identity_id→face_identities (CASCADE),
                 embedding(vector(512)), photo_uuid, created_at
 
-drive_nodes     id, user_id→users (CASCADE, indexed)               Kurisu Drive: one tree per account
+drive_nodes     id, user_id→users (CASCADE, indexed)               Amadeus Drive: one tree per account
                 parent_id→drive_nodes (CASCADE, indexed)?          null at the root
                 name, is_dir, size(BigInteger)
                 mime?, checksum?(sha256 hex), storage_key?(uuid4)  null on a folder
@@ -311,7 +311,7 @@ database. Run automatically by `docker-entrypoint.sh` before the app starts.
 ```bash
 # from backend/
 python -m scripts.migrate                       # apply
-cd kurisuassistant/db && alembic revision -m "description"
+cd amadeus/db && alembic revision -m "description"
 ```
 
 The first run seeds nothing (#148); accounts are registered and then activated by

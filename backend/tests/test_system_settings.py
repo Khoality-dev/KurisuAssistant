@@ -166,8 +166,8 @@ class TestModels:
         assert "Ollama" in resp.json()["detail"]
 
     def test_no_ollama_url_lists_nothing_rather_than_failing(self, account):
-        from kurisuassistant.db.models import User
-        from kurisuassistant.db.session import get_session
+        from amadeus.db.models import User
+        from amadeus.db.session import get_session
 
         with get_session() as session:
             session.query(User).filter_by(username=account.username).one().ollama_url = None
@@ -255,7 +255,7 @@ class TestPersonaPortability:
 
         imported = account.client.post(
             "/personas/import",
-            files={"file": ("kurisu.json", io.BytesIO(json.dumps(meta).encode()), "application/json")},
+            files={"file": ("amadeus.json", io.BytesIO(json.dumps(meta).encode()), "application/json")},
             headers=account.headers,
         )
         assert imported.status_code == 200, imported.text

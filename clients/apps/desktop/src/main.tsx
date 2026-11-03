@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { App, CharacterWindowApp } from '@kurisu/ui';
+import { App, CharacterWindowApp } from '@amadeus/ui';
 
 const isCharacterWindow = new URLSearchParams(window.location.search).get('window') === 'character';
 

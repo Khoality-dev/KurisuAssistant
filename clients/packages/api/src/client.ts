@@ -48,7 +48,7 @@ import {
   type UserProfile,
   type VoiceInfo,
   type VoicesResponse,
-} from '@kurisu/models';
+} from '@amadeus/models';
 import { sha256Hex, throwIfCancelled, toCharacterUploadError } from './characterUploads';
 import { wsManager } from './websocket';
 import { notificationSocket } from './notificationSocket';
@@ -1111,7 +1111,7 @@ class APIClient {
     });
   }
 
-  // Kurisu Drive (#17)
+  // Amadeus Drive (#17)
   //
   // Everything is addressed by node id, not by path: the server builds no
   // filesystem path out of anything sent here. `fileSource.ts` is what turns

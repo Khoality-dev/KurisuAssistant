@@ -24,18 +24,18 @@ async function send(page: Page, text: string) {
   await page.getByRole('button', { name: 'Send', exact: true }).click();
 }
 
-async function giveKurisuAVoice(mock: MockBackend) {
+async function giveAmadeusAVoice(mock: MockBackend) {
   const res = await fetch(`${mock.url}/personas/1`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ voice_reference: 'kurisu_ja_01' }),
+    body: JSON.stringify({ voice_reference: 'amadeus_ja_01' }),
   });
   expect(res.status).toBe(200);
 }
 
 test.describe('speech', () => {
   test('the reply is spoken sentence by sentence in the persona\'s voice', async ({ page, mock }) => {
-    await giveKurisuAVoice(mock);
+    await giveAmadeusAVoice(mock);
     mock.setStream({
       chunks: [
         { content: LONG_SENTENCE, role: 'assistant', delayMs: 10 },
@@ -49,14 +49,14 @@ test.describe('speech', () => {
     await expect.poll(() => mock.speechRequests.map((r) => r.text), { timeout: 10_000 })
       .toEqual([LONG_SENTENCE.trim(), SECOND_SENTENCE]);
     // The persona's voice, and no model the user did not pick (#200).
-    expect(mock.speechRequests.every((r) => r.voice === 'kurisu_ja_01' && r.provider === null)).toBe(true);
+    expect(mock.speechRequests.every((r) => r.voice === 'amadeus_ja_01' && r.provider === null)).toBe(true);
     // Played without a complaint.
     await page.waitForTimeout(1_500);
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
   test('with speech off nothing is synthesized, and Read aloud speaks one message', async ({ page, mock }) => {
-    await page.evaluate(() => localStorage.setItem('kurisu_tts_auto_play', 'false'));
+    await page.evaluate(() => localStorage.setItem('amadeus_tts_auto_play', 'false'));
     mock.setStream({ chunks: [{ content: LONG_SENTENCE, role: 'assistant', delayMs: 10 }] });
     await login(page);
     await send(page, 'Talk to me');

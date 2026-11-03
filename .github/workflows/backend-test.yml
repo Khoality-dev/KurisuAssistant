@@ -61,21 +61,21 @@ jobs:
       JWT_SECRET_KEY: ci-not-a-real-secret
       POSTGRES_HOST: localhost
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: kurisu
-      POSTGRES_PASSWORD: kurisu
+      POSTGRES_USER: amadeus
+      POSTGRES_PASSWORD: amadeus
 
     services:
       postgres:
         # The same image the stack runs; the migration chain needs pgvector.
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: kurisu
-          POSTGRES_PASSWORD: kurisu
-          POSTGRES_DB: kurisu
+          POSTGRES_USER: amadeus
+          POSTGRES_PASSWORD: amadeus
+          POSTGRES_DB: amadeus
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U kurisu"
+          --health-cmd "pg_isready -U amadeus"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10

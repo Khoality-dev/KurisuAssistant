@@ -9,8 +9,8 @@ import {
   Divider,
   SelectChangeEvent,
 } from '@mui/material';
-import { storage } from '@kurisu/api';
-import { useMicStore } from '@kurisu/state';
+import { storage } from '@amadeus/api';
+import { useMicStore } from '@amadeus/state';
 
 interface AudioDevice {
   deviceId: string;
@@ -22,7 +22,7 @@ export const VoiceSection: React.FC = () => {
   const [speakerDevices, setSpeakerDevices] = useState<AudioDevice[]>([]);
   const [selectedMicId, setSelectedMicIdState] = useState(storage.getASRDeviceId() || '');
   const [selectedSpeakerId, setSelectedSpeakerIdState] = useState(
-    localStorage.getItem('kurisu_speaker_device_id') || ''
+    localStorage.getItem('amadeus_speaker_device_id') || ''
   );
   const setSelectedMicId = (deviceId: string) => {
     setSelectedMicIdState(deviceId);
@@ -34,7 +34,7 @@ export const VoiceSection: React.FC = () => {
 
   const setSelectedSpeakerId = (deviceId: string) => {
     setSelectedSpeakerIdState(deviceId);
-    localStorage.setItem('kurisu_speaker_device_id', deviceId);
+    localStorage.setItem('amadeus_speaker_device_id', deviceId);
   };
 
   // Pause listening while on this page to free the mic for device enumeration

@@ -1,12 +1,12 @@
-# Kurisu Assistant Desktop
+# Amadeus Desktop
 
-The Windows and Linux desktop client for [Kurisu Assistant](../../../README.md).
+The Windows and Linux desktop client for [Amadeus](../../../README.md).
 
 See [Screens](docs/screens.md) for what the app looks like and the model it presents.
 
 ## Install
 
-Download the latest installer from the [desktop releases page](https://github.com/Khoality-dev/KurisuAssistant/releases/latest).
+Download the latest installer from the [desktop releases page](https://github.com/Khoality-dev/Amadeus/releases/latest).
 
 - Windows: run the `.exe` installer.
 - Linux: install the `.deb`, or make the `.AppImage` executable with `chmod +x` and open it.
@@ -19,7 +19,7 @@ Enter your server's complete URL, including `http://` or `https://`, then enter 
 
 ## Everyday use
 
-- **Workspace:** browse and edit this computer's files and your Kurisu Drive side by side. What the assistant's own file tools may reach is set under **Settings → Host Access**.
+- **Workspace:** browse and edit this computer's files and your Amadeus Drive side by side. What the assistant's own file tools may reach is set under **Settings → Host Access**.
 - **Conversations:** find and reopen earlier conversations, newest first.
 - **Model:** pick the account's model from the menu beside the persona in the chat header.
 - **Voice:** turn on voice mode with the headset button in the chat header; say the wake word to start talking. Configure the microphone and speech under **Settings → Voice** and **Settings → TTS & ASR**, where **Generate TTS During Responses** turns spoken replies on or off.
@@ -33,7 +33,7 @@ Typing `/` in the composer shows `/clear`, `/delete`, `/resume`, `/context`, `/p
 
 A new account is walked through choosing a model the first time it signs in. Without one, the first message asks you to choose a model from the chat header.
 
-The settings sections are **Account**, **Voice**, **TTS & ASR**, **Appearance**, **Assistant**, **Personas**, **Tools**, **Skills**, **Kurisu Drive**, **Notifications**, **Host Access**, **Face Identities**, and **Extensions**.
+The settings sections are **Account**, **Voice**, **TTS & ASR**, **Appearance**, **Assistant**, **Personas**, **Tools**, **Skills**, **Amadeus Drive**, **Notifications**, **Host Access**, **Face Identities**, and **Extensions**.
 
 `/vision` uses the server's camera pipeline. Its body-pose stage requires CUDA, and the default server does not give the API a GPU. Text, tools, memory, and speech still work on a CPU-only server.
 

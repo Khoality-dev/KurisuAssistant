@@ -14,9 +14,9 @@
  */
 import React, { useRef } from 'react';
 import { Avatar, Box, Typography } from '@mui/material';
-import type { CharacterPersona } from '@kurisu/state';
-import { config } from '@kurisu/api';
-import { useAuthedAssetUrl } from '@kurisu/hooks';
+import type { CharacterPersona } from '@amadeus/state';
+import { config } from '@amadeus/api';
+import { useAuthedAssetUrl } from '@amadeus/hooks';
 import { CharacterSurface, type MakeDriver, type VrmModule } from './CharacterSurface';
 
 /** A persona that would need a WebGL stage: a VRM persona with a model to show. */

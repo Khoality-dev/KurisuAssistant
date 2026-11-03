@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { usePersonaStore } from '@kurisu/state';
-import { useAuthStore } from '@kurisu/state';
-import { useConversationStore } from '@kurisu/state';
-import { apiClient } from '@kurisu/api';
-import type { Assistant, Tool, Skill } from '@kurisu/models';
+import { usePersonaStore } from '@amadeus/state';
+import { useAuthStore } from '@amadeus/state';
+import { useConversationStore } from '@amadeus/state';
+import { apiClient } from '@amadeus/api';
+import type { Assistant, Tool, Skill } from '@amadeus/models';
 
 export interface ContextBreakdown {
   system_prompt_tokens: number;

@@ -8,8 +8,8 @@ stream that runs over a limit is cleaned up.
 import pytest
 from fastapi import HTTPException
 
-from kurisuassistant.db.repositories import split_path
-from kurisuassistant.utils import drive_storage
+from amadeus.db.repositories import split_path
+from amadeus.utils import drive_storage
 
 
 class TestValidateName:

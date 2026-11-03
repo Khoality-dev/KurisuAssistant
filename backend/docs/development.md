@@ -1,6 +1,6 @@
 # Development
 
-Everything below runs from the `backend/` directory, because `docker compose` reads `docker-compose.yml` from here. `data/` is not why: the server resolves it from the installed package's location (`core/paths.py`), so it is always the `data/` beside `kurisuassistant/`, wherever you started the process.
+Everything below runs from the `backend/` directory, because `docker compose` reads `docker-compose.yml` from here. `data/` is not why: the server resolves it from the installed package's location (`core/paths.py`), so it is always the `data/` beside `amadeus/`, wherever you started the process.
 
 ## Local Setup
 
@@ -8,7 +8,7 @@ Everything below runs from the `backend/` directory, because `docker compose` re
 python -m venv venv && source venv/bin/activate   # venv\Scripts\activate on Windows
 pip install -r requirements.txt
 python -m scripts.migrate                          # Run migrations
-uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
+uvicorn amadeus.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir amadeus
 ```
 
 ## Docker
@@ -90,16 +90,16 @@ networks:
 
 Migrations auto-run on container startup via `docker-entrypoint.sh`, which now
 waits a bounded number of attempts and prints the connection error rather than
-retrying silently for ever. The image carries the application code — the Dockerfile copies `kurisuassistant/` and `scripts/` in — and the only thing the API container mounts from this directory is `data/`, which is runtime state. So a code change reaches the container through `docker compose up -d --build`, not by editing the checkout. To edit without rebuilding, use the dev overlay below: it mounts the source back over the image's copy.
+retrying silently for ever. The image carries the application code — the Dockerfile copies `amadeus/` and `scripts/` in — and the only thing the API container mounts from this directory is `data/`, which is runtime state. So a code change reaches the container through `docker compose up -d --build`, not by editing the checkout. To edit without rebuilding, use the dev overlay below: it mounts the source back over the image's copy.
 
 ## Releases and Deployment
 
-There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and a release is a tag on `main`, `vX.Y.Z`, and nothing else — one tag for the backend and both clients (#256), and no file in the tree holds the number (#291). To release: `git tag vX.Y.Z <commit on main> && git push origin vX.Y.Z`. The root `release.yml` refuses a tag that is not `vX.Y.Z` with minor and patch under 100 (it asks `python3 backend/kurisuassistant/version.py <tag>`) or that is not on `main`, then builds the desktop installers and the Android APK at that version and publishes them under one GitHub release. For the backend the tag *is* the release — there is no backend artifact; a deployment is a checkout of the tag rebuilt from its `backend/`, and the build stamps the image with `KURISU_VERSION` from `git describe --tags`. A backend built from the tag reports its number on `/health` and `/version`; one built from anything else reports what it was built from (`0.8.0-3-gc3fa067`), or `dev` when nothing was passed, so it is never mistaken for a release. (`backend-vX.Y.Z` was the backend's own tag before #256; the last is `backend-v0.6.0`.)
+There is no long-lived `dev` branch. Work happens on short-lived branches merged into `main` through pull requests, and a release is a tag on `main`, `vX.Y.Z`, and nothing else — one tag for the backend and both clients (#256), and no file in the tree holds the number (#291). To release: `git tag vX.Y.Z <commit on main> && git push origin vX.Y.Z`. The root `release.yml` refuses a tag that is not `vX.Y.Z` with minor and patch under 100 (it asks `python3 backend/amadeus/version.py <tag>`) or that is not on `main`, then builds the desktop installers and the Android APK at that version and publishes them under one GitHub release. For the backend the tag *is* the release — there is no backend artifact; a deployment is a checkout of the tag rebuilt from its `backend/`, and the build stamps the image with `AMADEUS_VERSION` from `git describe --tags`. A backend built from the tag reports its number on `/health` and `/version`; one built from anything else reports what it was built from (`0.8.0-3-gc3fa067`), or `dev` when nothing was passed, so it is never mistaken for a release. (`backend-vX.Y.Z` was the backend's own tag before #256; the last is `backend-v0.6.0`.)
 
 Keep a deployment's checkout separate from the one you develop in. The checkout is a build context, an env file and a `data/` directory — the running code comes from the image, so editing the tree changes nothing until the next `--build`, and the image keeps running if the tree moves. What still makes a shared tree a bad idea is `data/` and the fixed project name: a second stack started from the same directory writes into the same user data. Move a deployment with checkout and rebuild in one step:
 
 ```bash
-git fetch --tags && git checkout vX.Y.Z && KURISU_VERSION=$(git describe --tags) docker compose up -d --build
+git fetch --tags && git checkout vX.Y.Z && AMADEUS_VERSION=$(git describe --tags) docker compose up -d --build
 ```
 
 **Moving an existing deployment onto the profile split needs two things written
@@ -117,13 +117,13 @@ or its override:
   `docker-compose.override.yml` now (block above). Without it the API is
   published on `API_PORT` instead of being reachable through the proxy.
 
-Migrations run on container start, so the restart is also what applies them. `docker-compose.yml` pins `name: kurisuassistant`, so the project adopts the same containers and volumes (`postgres-container`, `kurisuassistant_postgres-data`) whichever directory it is started from — a checkout under a new path continues the same database instead of silently creating an empty one.
+Migrations run on container start, so the restart is also what applies them. `docker-compose.yml` pins `name: amadeus`, so the project adopts the same containers and volumes (`postgres-container`, `amadeus_postgres-data`) whichever directory it is started from — a checkout under a new path continues the same database instead of silently creating an empty one.
 
 When a release bumps `WIRE_PROTOCOL`, let the tag's release run finish — it publishes both clients — and deploy the backend from that tag after, once the updaters have had their chance. The backend rejects a mismatched client with 426 and Android hard-gates on it, so deploying first locks every installed app out.
 
 ### A second instance
 
-`docker-compose.dev.yml` starts a second, isolated API and database as its own Compose project — `kurisuassistant-dev`: `kurisu-api-dev`, `postgres-dev`, volume `kurisuassistant-dev_postgres-data`, its own `./data` — for trying `main` against a running backend without touching a deployment. It shares the GPU engines and Ollama with the deployment over the deployment's Compose network; the API uploads the voice reference with every TTS request, so nothing user-specific lives in those services.
+`docker-compose.dev.yml` starts a second, isolated API and database as its own Compose project — `amadeus-dev`: `amadeus-api-dev`, `postgres-dev`, volume `amadeus-dev_postgres-data`, its own `./data` — for trying `main` against a running backend without touching a deployment. It shares the GPU engines and Ollama with the deployment over the deployment's Compose network; the API uploads the voice reference with every TTS request, so nothing user-specific lives in those services.
 
 ```bash
 # from the backend/ of the checkout you want to run — never the deployment's
@@ -131,7 +131,7 @@ cp /path/to/deployment/backend/.env .     # same credentials, separate database
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-Unlike the plain stack, the overlay mounts `./kurisuassistant`, `./scripts`, `./tests` and `./pytest.ini` over the image's copy, so an edit takes effect on `docker compose -f docker-compose.dev.yml restart api` and `pytest` can run inside the container. That is also why it must be run from a checkout that is not also running the plain stack: the two would share `./data`, and the overlay would be editing the code of a tree a deployment builds from. It publishes `API_DEV_PORT` (15598) on loopback only — the plain stack already has 15597 — and it requires the two external networks in its header, which exist only where a production stack and a reverse proxy are already running. See the file's header for what is and is not shared.
+Unlike the plain stack, the overlay mounts `./amadeus`, `./scripts`, `./tests` and `./pytest.ini` over the image's copy, so an edit takes effect on `docker compose -f docker-compose.dev.yml restart api` and `pytest` can run inside the container. That is also why it must be run from a checkout that is not also running the plain stack: the two would share `./data`, and the overlay would be editing the code of a tree a deployment builds from. It publishes `API_DEV_PORT` (15598) on loopback only — the plain stack already has 15597 — and it requires the two external networks in its header, which exist only where a production stack and a reverse proxy are already running. See the file's header for what is and is not shared.
 
 ## Tests
 
@@ -146,7 +146,7 @@ pytest -m integration                                # a live Ollama / paid prov
 Three markers, registered in `pytest.ini`:
 
 - **unmarked** — pure unit tests, no services.
-- **`db`** — needs Postgres: the migration tests and the *system tests* (`tests/test_system_chat.py`), which run the real app on a fresh database created for the session, create and activate their own account, log in as it, open `/ws/chat` and drive whole turns — streaming, thinking, the tool loop with its approval gate, compaction — with the model played by the mock Ollama. Beside it (#311): `test_system_auth.py` (refresh, the wire-protocol gate over HTTP and on the socket), `test_system_socket.py` (a tool the client runs, stopping a reply, the message queue and its cap, reconnecting mid-reply, images), `test_system_settings.py` (deleting conversations and messages, tool policies, the model routes, sub-agents, MCP servers, skills, persona export/import), `test_system_agents.py` (a sub-agent turn, skills, a real SSE MCP server's tool, memory consolidation end to end, automatic compaction) and `test_system_character.py` (the VRM store on the real database). New system tests take the `account` fixture — a fresh activated account per test, its Ollama at the mock — so nothing one test changes reaches the next; the session-wide `tester` account is for the older modules, which reset what they touch. The app's own idle and index scans are parked for the session (`system_client` sets their intervals out of reach): left running, the idle scan consolidated conversations an earlier test had made look idle, a real model call landing in a later test (#330). The tests that cover the scans call them by hand. CI provides Postgres (`backend-test.yml`); locally they skip unless `POSTGRES_HOST`/`POSTGRES_PORT` point at one. On CI (`CI` set) a missing Postgres fails the run instead: every such skip goes through `tests/postgres.py`'s `require_postgres`, and the workflow runs with `-rs` so any skip is listed with its reason (#307). A throwaway is `docker run --rm -d -p 127.0.0.1:55432:5432 -e POSTGRES_USER=kurisu -e POSTGRES_PASSWORD=kurisu -e POSTGRES_DB=kurisu pgvector/pgvector:pg16`.
+- **`db`** — needs Postgres: the migration tests and the *system tests* (`tests/test_system_chat.py`), which run the real app on a fresh database created for the session, create and activate their own account, log in as it, open `/ws/chat` and drive whole turns — streaming, thinking, the tool loop with its approval gate, compaction — with the model played by the mock Ollama. Beside it (#311): `test_system_auth.py` (refresh, the wire-protocol gate over HTTP and on the socket), `test_system_socket.py` (a tool the client runs, stopping a reply, the message queue and its cap, reconnecting mid-reply, images), `test_system_settings.py` (deleting conversations and messages, tool policies, the model routes, sub-agents, MCP servers, skills, persona export/import), `test_system_agents.py` (a sub-agent turn, skills, a real SSE MCP server's tool, memory consolidation end to end, automatic compaction) and `test_system_character.py` (the VRM store on the real database). New system tests take the `account` fixture — a fresh activated account per test, its Ollama at the mock — so nothing one test changes reaches the next; the session-wide `tester` account is for the older modules, which reset what they touch. The app's own idle and index scans are parked for the session (`system_client` sets their intervals out of reach): left running, the idle scan consolidated conversations an earlier test had made look idle, a real model call landing in a later test (#330). The tests that cover the scans call them by hand. CI provides Postgres (`backend-test.yml`); locally they skip unless `POSTGRES_HOST`/`POSTGRES_PORT` point at one. On CI (`CI` set) a missing Postgres fails the run instead: every such skip goes through `tests/postgres.py`'s `require_postgres`, and the workflow runs with `-rs` so any skip is listed with its reason (#307). A throwaway is `docker run --rm -d -p 127.0.0.1:55432:5432 -e POSTGRES_USER=amadeus -e POSTGRES_PASSWORD=amadeus -e POSTGRES_DB=amadeus pgvector/pgvector:pg16`.
 - **`integration`** — needs a real external service. Never runs in CI: a live model call costs money on a paid provider and needs a GPU otherwise. One of them is a measurement rather than a check: `tests/test_emotion_compliance.py` sends twenty prompts to the model at `EMOTION_TEST_OLLAMA_URL` (`EMOTION_TEST_MODEL`, default `qwen3:8b`) with the Expression block and prints where the emotion tags landed — sentence starts, mid-sentence, every sentence, unknown labels — for a person deciding whether that model, or the prompt wording, is good enough (#243). Run it with `pytest tests/test_emotion_compliance.py -m integration -s`.
 
 ### Mock Ollama
@@ -157,7 +157,7 @@ It is also a plain process, for driving a client against a real backend that nee
 
 ```bash
 python -m tests.mock_ollama --port 11435              # the model
-uvicorn kurisuassistant.main:app --port 15597         # the backend
+uvicorn amadeus.main:app --port 15597         # the backend
 ```
 
 Then set the account's Ollama URL to `http://127.0.0.1:11435` under Settings → Account. Script it over HTTP: `POST /_mock/replies {"replies": [{"content": "..."}]}`, `GET /_mock/requests`, `DELETE /_mock/requests`, `POST /_mock/reset`, `GET /_mock/state`. (For a backend running in Docker, the Ollama URL `http://host.docker.internal:11435` reaches a mock on the host.) CI does exactly this for the desktop app (#313): `.github/workflows/real-backend-e2e.yml` migrates a fresh Postgres, starts both processes — the backend with `AUTH_RATE_LIMIT_MAX_ATTEMPTS` raised, since the suite signs in far more than ten times in five minutes — and runs `clients/apps/desktop/tests/realBackend/` against them, so a backend change that breaks what the app expects fails there (`clients/apps/desktop/docs/testing.md`).
@@ -189,7 +189,7 @@ Then set the account's Ollama URL to `http://127.0.0.1:11435` under Settings →
 | `DB_OPERATION_TIMEOUT_SECONDS` | `60` | How long a request waits for the single database thread before answering 503 (#153) |
 | `VISION_DEVICE` | — | `cpu` or `cuda` for gesture detection; empty picks `cuda` when torch sees a GPU, else `cpu` (#152) |
 | `FCM_SERVICE_ACCOUNT_FILE` | — | Push to phones (#353): the in-container path of a Firebase service account JSON (mount it under `data/`, e.g. `/app/data/firebase-service-account.json`). The project id is read from it. Empty: no push to phones, logged once at startup; the socket and the desktop are unchanged (`notifications/push.py`) |
-| `DRIVE_QUOTA_BYTES` | `16106127360` (15 GB) | How much Kurisu Drive one account may store. Registration is open by default, so an unmetered drive is a disk-exhaustion surface for the host; over it is `507` |
+| `DRIVE_QUOTA_BYTES` | `16106127360` (15 GB) | How much Amadeus Drive one account may store. Registration is open by default, so an unmetered drive is a disk-exhaustion surface for the host; over it is `507` |
 | `DRIVE_MAX_FILE_BYTES` | `2147483648` (2 GB) | Largest single drive file, enforced as the bytes arrive rather than after; over it is `413`. Behind `--profile tls`, nginx's `client_max_body_size` for `/drive/` applies too and the smaller of the two wins |
 | `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL` | `ollama`, `bge-m3` | The one embedding model behind `recall_semantic` (#6): `ollama` pulls it from `EMBEDDING_API_URL` on first use, `gemini` and `nvidia` use `EMBEDDING_API_KEY`. Empty `EMBEDDING_MODEL`, or no endpoint for the provider, switches semantic recall off; `recall_regex` keeps working. Changing the model re-embeds everything in the background (`retrieval.md`) |
 | `EMBEDDING_API_URL`, `EMBEDDING_API_KEY` | — | The embedding endpoint, for the index only. There is no server-wide Ollama URL or provider key for chat: each account stores its own (#293). On Linux a host Ollama must be started with `OLLAMA_HOST=0.0.0.0` or it refuses the container, which `GET /models` reports as a 502 naming the account's Ollama URL (#151) |
@@ -205,7 +205,7 @@ Read by Compose rather than by the server:
 | `ASR_DEVICE`, `ASR_IDLE_TIMEOUT` | `cuda`, `300` | The recognition engine's, not the API's: it drops its model after this long idle and reloads on the next clip |
 | `DB_WAIT_ATTEMPTS`, `DB_WAIT_INTERVAL` | `60`, `2` | How long the entrypoint waits for Postgres before failing loudly |
 
-There is **no `DATA_DIR` variable** for the server: `core/paths.py` resolves `data/` from the package location and never reads the environment, so it is the `data/` beside the installed `kurisuassistant/` regardless of where a command is run. One migration used to read a `DATA_DIR` env var that nothing sets, and therefore looked for character assets under the literal `/app/data` outside the container; it now imports the same constant as everything else.
+There is **no `DATA_DIR` variable** for the server: `core/paths.py` resolves `data/` from the package location and never reads the environment, so it is the `data/` beside the installed `amadeus/` regardless of where a command is run. One migration used to read a `DATA_DIR` env var that nothing sets, and therefore looked for character assets under the literal `/app/data` outside the container; it now imports the same constant as everything else.
 
 MCP tool-specific env vars (e.g. `SERPAPI_KEY`) are configured in each tool's own `.env` in the separate `mcp-servers` repo.
 
@@ -215,7 +215,7 @@ Back up these volumes/directories:
 
 - `postgres-data` — PostgreSQL database
 - `./data` — images, avatars, voices, character assets, JWT secret
-- `./data/drive` — Kurisu Drive, whatever users have stored. Its own subtree so it
+- `./data/drive` — Amadeus Drive, whatever users have stored. Its own subtree so it
   can be archived on its own schedule; it is the only part of `data/` that grows
   without bound. See [Operations](operations.md#back-up).
 

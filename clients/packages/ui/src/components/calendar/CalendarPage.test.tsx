@@ -19,12 +19,12 @@ const api = vi.hoisted(() => ({
   deleteCalendarEntry: vi.fn(async () => undefined),
 }));
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   apiClient: api,
 }));
 
-import { useCalendarStore, useLayoutStore } from '@kurisu/state';
+import { useCalendarStore, useLayoutStore } from '@amadeus/state';
 import { CalendarPage } from './CalendarPage';
 import { CalendarToolCard } from './CalendarToolCard';
 
