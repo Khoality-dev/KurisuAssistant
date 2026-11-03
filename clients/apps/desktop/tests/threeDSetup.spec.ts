@@ -60,7 +60,7 @@ test.describe('the 3D setup refuses what it cannot use', () => {
     mock.setCharacterQuotaBytes(1024);
     await login(page);
     await openSetup(page, '3D model · none uploaded');
-    await uploadModel(page, 'kurisu.vrm', VRM_MODEL_BYTES);
+    await uploadModel(page, 'amadeus.vrm', VRM_MODEL_BYTES);
     await expect(page.getByText('No room left for 3D files')).toBeVisible({ timeout: 10_000 });
     expect(mock.lastCharacterUpload?.status).toBe(507);
     expect(mock.getPersonas()[0].character_config?.vrm?.model ?? null).toBeNull();
@@ -71,7 +71,7 @@ test.describe('the 3D setup\'s steps', () => {
   test('each step\'s choice is saved to the persona on the server', async ({ page, mock }) => {
     mock.setCharacterConfig(1, VRM_CHARACTER_WITH_MODEL);
     await login(page);
-    await openSetup(page, '3D model · kurisu_v2.vrm');
+    await openSetup(page, '3D model · amadeus_v2.vrm');
     const saved = page.getByText('Saved', { exact: true });
     const vrm = () => mock.getPersonas()[0].character_config!.vrm!;
 

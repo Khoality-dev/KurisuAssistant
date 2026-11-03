@@ -31,9 +31,9 @@
  */
 
 import { apiClient } from './client';
-import type { DriveNode } from '@kurisu/models';
-import type { FileEntry } from '@kurisu/models';
-import { resolveBridge, type ExplorerAPI } from '@kurisu/platform';
+import type { DriveNode } from '@amadeus/models';
+import type { FileEntry } from '@amadeus/models';
+import { resolveBridge, type ExplorerAPI } from '@amadeus/platform';
 
 /**
  * This machine's filesystem.
@@ -53,7 +53,7 @@ export const DRIVE_SCHEME = 'drive://';
 /** The drive's root, as it appears in `FileEntry.fullPath`. */
 export const DRIVE_ROOT = DRIVE_SCHEME;
 
-export const DRIVE_ROOT_LABEL = 'Kurisu Drive';
+export const DRIVE_ROOT_LABEL = 'Amadeus Drive';
 export const LOCAL_ROOT_LABEL = 'This computer';
 
 export function isDrivePath(path: string): boolean {
@@ -184,9 +184,9 @@ function describeError(error: unknown): string {
     ?.response;
   const detail = response?.data?.detail;
   if (typeof detail === 'string' && detail) return detail;
-  if (response?.status === 404) return 'Not found on Kurisu Drive.';
+  if (response?.status === 404) return 'Not found on Amadeus Drive.';
   if (error instanceof Error && error.message) return error.message;
-  return 'Kurisu Drive could not be reached.';
+  return 'Amadeus Drive could not be reached.';
 }
 
 // ── the surface ─────────────────────────────────────────────────────────────

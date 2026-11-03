@@ -458,7 +458,7 @@ export interface MediaTrack {
 }
 
 
-// Kurisu Drive — account-scoped storage on the server (#17)
+// Amadeus Drive — account-scoped storage on the server (#17)
 
 export interface DriveNode {
   id: number;

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { wsManager, VisionResultEvent, ConnectedEvent } from '@kurisu/api';
-import type { VisionResult } from '@kurisu/models';
+import { wsManager, VisionResultEvent, ConnectedEvent } from '@amadeus/api';
+import type { VisionResult } from '@amadeus/models';
 import { pushGestures, setFaces } from './characterFeedStore';
 
 interface VisionState {

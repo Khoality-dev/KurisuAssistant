@@ -124,7 +124,7 @@ test.describe('the app\'s own tools', () => {
   });
 
   test('a file inside an allowed folder is read with no prompt', async ({ page, mock, appPaths }) => {
-    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-host-'));
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-host-'));
     const file = path.join(folder, 'todo.txt');
     fs.writeFileSync(file, 'buy milk');
     allowPaths(appPaths.settingsFile, [folder]);
@@ -147,8 +147,8 @@ test.describe('the app\'s own tools', () => {
   });
 
   test('a file outside every allowed folder is asked about, and refused when I say no', async ({ page, mock, appPaths }) => {
-    const allowed = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-host-'));
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-outside-'));
+    const allowed = fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-host-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-outside-'));
     const secret = path.join(outside, 'secret.txt');
     fs.writeFileSync(secret, 'the password is swordfish');
     allowPaths(appPaths.settingsFile, [allowed]);
@@ -187,7 +187,7 @@ test.describe('the app\'s own tools', () => {
 
 test.describe('Settings → Host Access', () => {
   test('a folder added there is granted to the app, and removing it takes it back', async ({ page, mock, appPaths }) => {
-    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-grant-'));
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-grant-'));
     try {
       await login(page);
       await page.locator('button').filter({

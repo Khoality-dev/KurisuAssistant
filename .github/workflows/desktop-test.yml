@@ -93,11 +93,11 @@ jobs:
       - name: Character page matches its source
         working-directory: clients
         run: |
-          npm run build:page -w @kurisu/vrm
+          npm run build:page -w @amadeus/vrm
           dir=android/app/src/main/assets/character
           if ! git diff --quiet -- "$dir" || [ -n "$(git ls-files --others --exclude-standard -- "$dir")" ]; then
             git status --short -- "$dir"
-            echo "::error::android/app/src/main/assets/character is not what 'npm run build:page -w @kurisu/vrm' builds. Rebuild it and commit the result."
+            echo "::error::android/app/src/main/assets/character is not what 'npm run build:page -w @amadeus/vrm' builds. Rebuild it and commit the result."
             exit 1
           fi
 

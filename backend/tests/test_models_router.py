@@ -11,8 +11,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.routers import models as models_router
+from amadeus.core.deps import get_authenticated_user
+from amadeus.routers import models as models_router
 
 
 class _User:
@@ -94,14 +94,14 @@ class TestUnreachableOllama:
 
 class TestProvidersRaiseInsteadOfPretending:
     def test_ollama_list_models_raises_when_the_host_is_down(self):
-        from kurisuassistant.models.llm.ollama_provider import OllamaProvider
+        from amadeus.models.llm.ollama_provider import OllamaProvider
 
         provider = OllamaProvider(api_url="http://127.0.0.1:9")  # nothing listens on 9
         with pytest.raises(Exception):
             provider.list_models()
 
     def test_gemini_has_no_fabricated_catalogue(self):
-        from kurisuassistant.models.llm import gemini_provider
+        from amadeus.models.llm import gemini_provider
 
         source = open(gemini_provider.__file__).read()
         assert "gemini-2.0-flash-lite" not in source

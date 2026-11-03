@@ -8,8 +8,8 @@ import {
   StopCircle as StopIcon,
   TaskAlt as TasksIcon,
 } from '@mui/icons-material';
-import type { TaskToolResult } from '@kurisu/models';
-import { formatNextRun, useLayoutStore, useTasksStore } from '@kurisu/state';
+import type { TaskToolResult } from '@amadeus/models';
+import { formatNextRun, useLayoutStore, useTasksStore } from '@amadeus/state';
 
 /**
  * A task tool's result in the chat (#352): what the assistant just started or

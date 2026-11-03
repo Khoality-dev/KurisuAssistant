@@ -18,7 +18,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { startServer } from './mcp';
-import { PLAYWRIGHT_MCP_PACKAGE } from '@kurisu/models';
+import { PLAYWRIGHT_MCP_PACKAGE } from '@amadeus/models';
 
 // --- Tool schemas ---
 

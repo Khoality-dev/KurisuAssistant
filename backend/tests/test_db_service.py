@@ -17,14 +17,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException
 
-from kurisuassistant.core.errors import (
+from amadeus.core.errors import (
     DB_UNAVAILABLE_MESSAGE,
     install_exception_handlers,
     internal_error,
 )
-from kurisuassistant.db import service as service_module
-from kurisuassistant.db import session as session_module
-from kurisuassistant.db.service import DBService, DBUnavailableError
+from amadeus.db import service as service_module
+from amadeus.db import session as session_module
+from amadeus.db.service import DBService, DBUnavailableError
 
 
 @contextmanager
@@ -46,7 +46,7 @@ class TestFailuresAreLogged:
         def lost_connection(session):
             raise OperationalError("SELECT 1", {}, Exception("server closed the connection"))
 
-        with caplog.at_level(logging.ERROR, logger="kurisuassistant.db.service"):
+        with caplog.at_level(logging.ERROR, logger="amadeus.db.service"):
             with pytest.raises(OperationalError):
                 db.execute_sync(lost_connection)
 
@@ -60,7 +60,7 @@ class TestFailuresAreLogged:
         def broken(session):
             return session.no_such_attribute
 
-        with caplog.at_level(logging.ERROR, logger="kurisuassistant.db.service"):
+        with caplog.at_level(logging.ERROR, logger="amadeus.db.service"):
             with pytest.raises(AttributeError):
                 db.execute_sync(broken)
         assert "broken" in caplog.text and "Traceback" in caplog.text
@@ -71,7 +71,7 @@ class TestFailuresAreLogged:
         def refuse(session):
             raise exc
 
-        with caplog.at_level(logging.DEBUG, logger="kurisuassistant.db.service"):
+        with caplog.at_level(logging.DEBUG, logger="amadeus.db.service"):
             with pytest.raises(type(exc)):
                 db.execute_sync(refuse)
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
@@ -97,7 +97,7 @@ class TestCallersDoNotWaitForever:
         def later(session):
             return "never"
 
-        with caplog.at_level(logging.ERROR, logger="kurisuassistant.db.service"):
+        with caplog.at_level(logging.ERROR, logger="amadeus.db.service"):
             with pytest.raises(DBUnavailableError) as info:
                 stuck.execute_sync(later, timeout=0.05)
         assert "later" in str(info.value)

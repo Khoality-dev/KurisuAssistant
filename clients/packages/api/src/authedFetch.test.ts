@@ -8,7 +8,7 @@
  * the backend's origin and to no other host a config might name.
  */
 
-import { installBridge, resetBridge } from '@kurisu/platform/testing';
+import { installBridge, resetBridge } from '@amadeus/platform/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AssetRequestError,

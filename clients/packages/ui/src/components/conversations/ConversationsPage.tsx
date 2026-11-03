@@ -10,9 +10,9 @@ import {
   InputAdornment,
 } from '@mui/material';
 import { Search as SearchIcon, Add as AddIcon } from '@mui/icons-material';
-import { useConversationStore } from '@kurisu/state';
-import { apiClient } from '@kurisu/api';
-import type { Conversation } from '@kurisu/models';
+import { useConversationStore } from '@amadeus/state';
+import { apiClient } from '@amadeus/api';
+import type { Conversation } from '@amadeus/models';
 
 function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '';

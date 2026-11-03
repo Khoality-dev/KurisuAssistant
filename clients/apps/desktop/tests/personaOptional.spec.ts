@@ -144,7 +144,7 @@ test.describe('one persona in use for the whole account', () => {
     // This machine forgets everything but where the server is; the server does not.
     await page.evaluate(() => {
       for (const key of Object.keys(localStorage)) {
-        if (key !== 'kurisu_backend_url') localStorage.removeItem(key);
+        if (key !== 'amadeus_backend_url') localStorage.removeItem(key);
       }
     });
     await page.reload();

@@ -19,9 +19,9 @@
  * Opening a reminder opens the Calendar on it (#282, `useCalendarStore.openEntry`).
  */
 import { create } from 'zustand';
-import { apiClient, config, notificationSocket, storage } from '@kurisu/api';
-import { notificationHeading, notificationTarget, type NotificationEvent, type NotificationTarget } from '@kurisu/models';
-import { resolveBridge } from '@kurisu/platform';
+import { apiClient, config, notificationSocket, storage } from '@amadeus/api';
+import { notificationHeading, notificationTarget, type NotificationEvent, type NotificationTarget } from '@amadeus/models';
+import { resolveBridge } from '@amadeus/platform';
 import { useCalendarStore } from './calendarStore';
 import { useConversationStore } from './conversationStore';
 import { useLayoutStore } from './layoutStore';

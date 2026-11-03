@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VRM_MOTIONS } from '@kurisu/models';
+import { VRM_MOTIONS } from '@amadeus/models';
 import { blendEuler, MOTION_DURATION_MS, motionEnvelope, sampleMotion } from './motions';
 
 describe('the built-in moves', () => {

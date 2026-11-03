@@ -2,7 +2,7 @@
 
 Every synthesis engine the backend can talk to is a container that speaks the
 routes below, and the backend has one adapter for all of them
-(`kurisuassistant/speech/engines/standard.py`). Adding an engine is one entry
+(`amadeus/speech/engines/standard.py`). Adding an engine is one entry
 in `TTS_ENGINES` — `name=http://host:port` — and nothing else (#227).
 
 The engine owns its own memory. It loads its model when it needs it, drops it

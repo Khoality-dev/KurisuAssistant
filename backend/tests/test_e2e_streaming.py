@@ -7,9 +7,9 @@ mock, so nothing here is skipped and nothing costs money.
 
 from unittest.mock import AsyncMock, MagicMock
 
-from kurisuassistant.models.llm.ollama_provider import OllamaProvider
-from kurisuassistant.websocket.handlers import ChatSessionHandler
-from kurisuassistant.websocket.events import StreamChunkEvent, DoneEvent
+from amadeus.models.llm.ollama_provider import OllamaProvider
+from amadeus.websocket.handlers import ChatSessionHandler
+from amadeus.websocket.events import StreamChunkEvent, DoneEvent
 from tests.mock_ollama import DEFAULT_MODEL, Reply
 
 

@@ -10,18 +10,18 @@ import {
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { CalendarToolCard } from '../calendar/CalendarToolCard';
-import { apiClient } from '@kurisu/api';
-import { storage } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
+import { storage } from '@amadeus/api';
 
-import type { StreamingMessage } from '@kurisu/hooks';
+import type { StreamingMessage } from '@amadeus/hooks';
 import { MessageToolbar } from './MessageToolbar';
 import { TaskResultCard } from './TaskResultCard';
-import { parseTaskToolResult } from '@kurisu/models';
+import { parseTaskToolResult } from '@amadeus/models';
 import { RawDataDialog } from './RawDataDialog';
-import { useExplorerStore } from '@kurisu/state';
-import { useLayoutStore } from '@kurisu/state';
-import { usePersonaStore } from '@kurisu/state';
-import { resolveBridge } from '@kurisu/platform';
+import { useExplorerStore } from '@amadeus/state';
+import { useLayoutStore } from '@amadeus/state';
+import { usePersonaStore } from '@amadeus/state';
+import { resolveBridge } from '@amadeus/platform';
 
 const MotionBox = motion(Box);
 

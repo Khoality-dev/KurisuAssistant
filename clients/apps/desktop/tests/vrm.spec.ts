@@ -100,7 +100,7 @@ test.describe('3D character', () => {
     await expect(page.getByText('Drop a .vrm file here')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('input[accept=".vrm"]').setInputFiles({
-      name: 'kurisu.vrm', mimeType: 'application/octet-stream', buffer: VRM_MODEL_BYTES,
+      name: 'amadeus.vrm', mimeType: 'application/octet-stream', buffer: VRM_MODEL_BYTES,
     });
 
     const preview = page.getByTestId('vrm-preview');
@@ -115,7 +115,7 @@ test.describe('3D character', () => {
   test('reopening the setup of a persona that has a model loads it from the server again', async ({ page, mock }) => {
     mock.setCharacterConfig(1, VRM_CHARACTER_WITH_MODEL);
     await login(page);
-    await openSetup(page, '3D model · kurisu_v2.vrm');
+    await openSetup(page, '3D model · amadeus_v2.vrm');
     const preview = page.getByTestId('vrm-preview');
     await expect(preview).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
 
@@ -140,7 +140,7 @@ test.describe('3D character', () => {
     const pageErrors: string[] = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await login(page);
-    await openSetup(page, '3D model · kurisu_v2.vrm');
+    await openSetup(page, '3D model · amadeus_v2.vrm');
     const preview = page.getByTestId('vrm-preview');
     await expect(preview).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
 
@@ -162,7 +162,7 @@ test.describe('3D character', () => {
   test('removing the model leaves the persona with none, on the server and in the setup', async ({ page, mock }) => {
     mock.setCharacterConfig(1, VRM_CHARACTER_WITH_MODEL);
     await login(page);
-    await openSetup(page, '3D model · kurisu_v2.vrm');
+    await openSetup(page, '3D model · amadeus_v2.vrm');
     await expect(page.getByTestId('vrm-preview')).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
 
     // "Her model" is the step that is open when the setup opens on a model.
@@ -189,7 +189,7 @@ test.describe('3D character', () => {
   });
 
   test('two 3D personas in one conversation share one stage; the other waits on a card', async ({ page, electronApp, mock }) => {
-    if (!mock.getPersonas().some((p) => p.id === 2)) mock.addPersona({ id: 2, name: 'Amadeus' } as never);
+    if (!mock.getPersonas().some((p) => p.id === 2)) mock.addPersona({ id: 2, name: 'Mozart' } as never);
     mock.setCharacterConfig(1, VRM_CHARACTER_WITH_MODEL);
     mock.setCharacterConfig(2, {
       ...VRM_CHARACTER_WITH_MODEL,
@@ -198,14 +198,14 @@ test.describe('3D character', () => {
     mock.setStream({
       chunks: [
         { content: 'Kurisu speaking.', role: 'assistant', delayMs: 150 },
-        { content: 'Amadeus speaking.', role: 'assistant', delayMs: 150, personaId: 2, personaName: 'Amadeus' },
+        { content: 'Mozart speaking.', role: 'assistant', delayMs: 150, personaId: 2, personaName: 'Mozart' },
       ],
     });
     const composer = await login(page);
     const characterPage = await openCharacterWindow(page, electronApp);
 
     await send(page, composer, 'Both of you');
-    await expect(page.getByText('Amadeus speaking.')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Mozart speaking.')).toBeVisible({ timeout: 15_000 });
 
     await expect(characterPage.getByTestId('character-surface')).toHaveCount(1);
     await expect(characterPage.getByTestId('character-surface')).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });

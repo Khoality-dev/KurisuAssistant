@@ -25,7 +25,7 @@ Run these from **this directory**, not from an app:
 - `npm ci` — the only place dependencies install. The lockfile is here and every member's `node_modules` hoists here, so an app directory has no lockfile of its own and `npm ci` inside one will not work.
 - `npm test` — every member's suite, including `packages/platform/src/boundaries.test.ts`.
 - `npm run typecheck` — every member.
-- `npm run build:page -w @kurisu/vrm` — rebuild the Android character page (`android/app/src/main/assets/character/index.html`) after changing `packages/vrm`, and commit it; CI fails when the committed file is not what the source builds (#245).
+- `npm run build:page -w @amadeus/vrm` — rebuild the Android character page (`android/app/src/main/assets/character/index.html`) after changing `packages/vrm`, and commit it; CI fails when the committed file is not what the source builds (#245).
 
 An app's own commands (`electron:dev`, `test:e2e`, the packaging build) still run from that app's directory.
 
@@ -50,12 +50,12 @@ shapes and nothing about a host, a server, a store or a screen.
   versions in `packages/vrm/package.json` (three 0.186.x, the pixiv packages 3.5.5,
   whose peer range is `three >= 0.137`) and no other member — package or app — may
   import them, statically, lazily or by `require`: a WebGL engine is the heaviest
-  thing a client carries. `ui` asks `supportsWebGL()` from `@kurisu/vrm/probe` (an
+  thing a client carries. `ui` asks `supportsWebGL()` from `@amadeus/vrm/probe` (an
   entry that imports nothing) and only then reaches the engine through a dynamic
-  import of `@kurisu/vrm`; nothing below `ui` may import `@kurisu/vrm` at all; and the
+  import of `@amadeus/vrm`; nothing below `ui` may import `@amadeus/vrm` at all; and the
   Android page bundle is built from `vrm` alone. The driver contract both character
   kinds implement — `CharacterDriver` in `models/src/characterDriver.ts` — names no
-  canvas, and `@kurisu/vrm/testing` exports the conformance cases every driver must
+  canvas, and `@amadeus/vrm/testing` exports the conformance cases every driver must
   pass, with a `probe` so they check what a driver did, not only that it did not throw.
   The 2D adapter over `CanvasCompositor` (`ui/src/character/PoseGraphDriver.ts`) passes
   them too. What a driver is fed comes from one place, `state/src/characterFeedStore.ts`:
@@ -67,7 +67,7 @@ shapes and nothing about a host, a server, a store or a screen.
   `--if-present`, so a member without them is skipped silently and green; the
   boundary test refuses that.
 - **A screen asks what the host can do, not what it is.** `useCapabilities()` from
-  `@kurisu/hooks`, and `requireFiles()`/`requireHostTools()`/… from `@kurisu/platform`
+  `@amadeus/hooks`, and `requireFiles()`/`requireHostTools()`/… from `@amadeus/platform`
   for the call that follows the check. A control whose capability is absent is not
   rendered — not disabled, not silently inert.
 

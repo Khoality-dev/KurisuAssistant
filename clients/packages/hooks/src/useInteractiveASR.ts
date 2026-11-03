@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useMicStore } from '@kurisu/state';
+import { useMicStore } from '@amadeus/state';
 
 /**
  * Whether a transcript carries the wake word: anywhere in it, in any case, as

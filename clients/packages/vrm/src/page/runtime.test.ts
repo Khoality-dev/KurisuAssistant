@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { describe, expect, it } from 'vitest';
-import type { DriverInput, DriverLoadDeps, ParsedCharacterConfig, VrmSettings } from '@kurisu/models';
+import type { DriverInput, DriverLoadDeps, ParsedCharacterConfig, VrmSettings } from '@amadeus/models';
 import type { PageEvent } from './host';
 import { createPageRuntime, subtitleHoldMs, type PageDriver, type PageStatus } from './runtime';
 

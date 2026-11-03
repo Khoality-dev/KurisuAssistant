@@ -87,7 +87,7 @@ test.describe('the persona\'s feeling reaches the character window', () => {
   });
 
   test('with speech off, the feeling shows as its text arrives, the last of a quick run winning', async ({ page, electronApp }) => {
-    await page.evaluate(() => localStorage.setItem('kurisu_tts_auto_play', 'false'));
+    await page.evaluate(() => localStorage.setItem('amadeus_tts_auto_play', 'false'));
     const composer = await login(page);
     const relayed = await listen(electronApp);
     await openCharacterWindow(page, electronApp);

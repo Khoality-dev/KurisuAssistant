@@ -19,9 +19,9 @@ from datetime import datetime, timedelta
 import pytest
 import sqlalchemy as sa
 
-from kurisuassistant.workers import service as worker_module
-from kurisuassistant.workers.service import BackgroundService, MAX_ATTEMPTS, retry_delay
-from kurisuassistant.workers.tasks import ConsolidateMemoryTask
+from amadeus.workers import service as worker_module
+from amadeus.workers.service import BackgroundService, MAX_ATTEMPTS, retry_delay
+from amadeus.workers.tasks import ConsolidateMemoryTask
 from tests.postgres import require_postgres
 
 pytestmark = pytest.mark.db
@@ -43,8 +43,8 @@ class TestBackoff:
 def db(system_db):
     """The DB service on the migrated test database, with the tester's summary
     model set so the scan actually queues something."""
-    from kurisuassistant.db import service as service_module
-    from kurisuassistant.db.models import User
+    from amadeus.db import service as service_module
+    from amadeus.db.models import User
 
     started_here = service_module._service is None
     if started_here:
@@ -64,7 +64,7 @@ def db(system_db):
 
 def _conversation(db, user_id, *, age=IDLE, messages=1, **fields):
     """One conversation, ``age`` old, with ``messages`` messages."""
-    from kurisuassistant.db.models import Conversation, Message
+    from amadeus.db.models import Conversation, Message
 
     def _make(session):
         conv = Conversation(user_id=user_id, title=uuid.uuid4().hex,
@@ -79,7 +79,7 @@ def _conversation(db, user_id, *, age=IDLE, messages=1, **fields):
 
 
 def _row(db, conv_id):
-    from kurisuassistant.db.models import Conversation
+    from amadeus.db.models import Conversation
 
     def _get(session):
         c = session.get(Conversation, conv_id)
@@ -160,7 +160,7 @@ class TestOutcomesAreRecorded:
         async def ok(**kwargs):
             return None
 
-        monkeypatch.setattr("kurisuassistant.utils.memory_consolidation.consolidate_assistant_memory", ok)
+        monkeypatch.setattr("amadeus.utils.memory_consolidation.consolidate_assistant_memory", ok)
         svc = BackgroundService()
         assert conv in _scan(svc)
 
@@ -179,7 +179,7 @@ class TestOutcomesAreRecorded:
         async def boom(**kwargs):
             raise ConnectionError("model host unreachable")
 
-        monkeypatch.setattr("kurisuassistant.utils.memory_consolidation.consolidate_assistant_memory", boom)
+        monkeypatch.setattr("amadeus.utils.memory_consolidation.consolidate_assistant_memory", boom)
         svc = BackgroundService()
         assert conv in _scan(svc)
 
@@ -196,7 +196,7 @@ class TestOutcomesAreRecorded:
         assert conv not in _scan(svc), "not before the retry is due"
 
         def _due_now(session):
-            from kurisuassistant.db.models import Conversation
+            from amadeus.db.models import Conversation
             session.get(Conversation, conv).consolidation_next_retry_at = datetime.utcnow() - timedelta(seconds=1)
 
         svc_db.execute_sync(_due_now)
@@ -209,7 +209,7 @@ class TestOutcomesAreRecorded:
         async def boom(**kwargs):
             raise RuntimeError("still broken")
 
-        monkeypatch.setattr("kurisuassistant.utils.memory_consolidation.consolidate_assistant_memory", boom)
+        monkeypatch.setattr("amadeus.utils.memory_consolidation.consolidate_assistant_memory", boom)
         _run(BackgroundService(), conv, user_id)
 
         row = _row(svc_db, conv)
@@ -223,7 +223,7 @@ class TestOutcomesAreRecorded:
         async def boom(**kwargs):
             raise RuntimeError("bad summary model")
 
-        monkeypatch.setattr("kurisuassistant.utils.memory_consolidation.consolidate_assistant_memory", boom)
+        monkeypatch.setattr("amadeus.utils.memory_consolidation.consolidate_assistant_memory", boom)
         svc = BackgroundService()
         with caplog.at_level(logging.ERROR, logger=worker_module.__name__):
             _run(svc, conv, user_id)
@@ -237,7 +237,7 @@ class TestOutcomesAreRecorded:
 
         # New activity makes it due again, from a clean count.
         def _touch(session):
-            from kurisuassistant.db.models import Conversation
+            from amadeus.db.models import Conversation
             c = session.get(Conversation, conv)
             c.updated_at = datetime.utcnow() - IDLE  # idle again, but changed since the stamp
             c.consolidated_at = c.updated_at - timedelta(hours=1)
@@ -248,7 +248,7 @@ class TestOutcomesAreRecorded:
     def test_consolidation_failures_reach_the_handler(self, db):
         """``consolidate_assistant_memory`` used to swallow every exception, so
         the handler could never have known to schedule a retry."""
-        from kurisuassistant.utils.memory_consolidation import consolidate_assistant_memory
+        from amadeus.utils.memory_consolidation import consolidate_assistant_memory
 
         svc_db, user_id = db
         conv = _conversation(svc_db, user_id)
@@ -268,8 +268,8 @@ PREVIOUS = "a1f4c7d92b3e"
 
 
 def _admin_url() -> str:
-    user = os.getenv("POSTGRES_USER", "kurisu")
-    password = os.getenv("POSTGRES_PASSWORD", "kurisu")
+    user = os.getenv("POSTGRES_USER", "amadeus")
+    password = os.getenv("POSTGRES_PASSWORD", "amadeus")
     host = os.getenv("POSTGRES_HOST", "localhost")
     port = os.getenv("POSTGRES_PORT", "5432")
     return f"postgresql://{user}:{password}@{host}:{port}/postgres"
@@ -288,13 +288,13 @@ def throwaway_db():
     except Exception as exc:  # pragma: no cover - environment dependent
         require_postgres(exc, "migration tests")
 
-    db_name = f"kurisu_mig_{uuid.uuid4().hex[:12]}"
+    db_name = f"amadeus_mig_{uuid.uuid4().hex[:12]}"
     previous_db = os.environ.get("POSTGRES_DB")
     with admin.connect() as conn:
         conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_dir = os.path.join(here, "kurisuassistant", "db")
+    db_dir = os.path.join(here, "amadeus", "db")
     config = Config(os.path.join(db_dir, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(db_dir, "alembic"))
     os.environ["POSTGRES_DB"] = db_name

@@ -8,7 +8,7 @@
  * keeps its own timers through an injectable pair, and reports one view —
  * the text, whose it is, and whether it shows — whenever that changes.
  */
-import type { SubtitleEvent } from '@kurisu/state';
+import type { SubtitleEvent } from '@amadeus/state';
 
 export interface SubtitleView {
   text: string;

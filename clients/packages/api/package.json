@@ -1,5 +1,5 @@
 {
-  "name": "@kurisu/api",
+  "name": "@amadeus/api",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": {"@kurisu/models":"*","@kurisu/platform":"*","axios":"^1.6.5"},
+  "dependencies": {"@amadeus/models":"*","@amadeus/platform":"*","axios":"^1.6.5"},
   "devDependencies": {
     "typescript": "^5.3.3",
     "vitest": "^2.1.9"

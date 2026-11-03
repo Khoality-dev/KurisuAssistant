@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from kurisuassistant.workers import reminders
+from amadeus.workers import reminders
 
 pytestmark = pytest.mark.db
 

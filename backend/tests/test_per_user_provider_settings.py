@@ -12,10 +12,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.models.llm import ProviderNotConfigured, create_llm_provider
-from kurisuassistant.routers import models as models_router
-from kurisuassistant.utils import embeddings as embedding_service
+from amadeus.core.deps import get_authenticated_user
+from amadeus.models.llm import ProviderNotConfigured, create_llm_provider
+from amadeus.routers import models as models_router
+from amadeus.utils import embeddings as embedding_service
 
 
 @pytest.fixture()

@@ -3,7 +3,7 @@
  * crosses IPC, only while the window is open, and the `ready` handshake in
  * order — session, personas, then what the feed holds now.
  */
-import { fakeCharacterWindow } from '@kurisu/platform/testing';
+import { fakeCharacterWindow } from '@amadeus/platform/testing';
 import {
   publishSpeech,
   publishSpeechSync,
@@ -14,8 +14,8 @@ import {
   setFaces,
   setThinking,
   useCharacterStore,
-} from '@kurisu/state';
-import type { SpeechSegment } from '@kurisu/models';
+} from '@amadeus/state';
+import type { SpeechSegment } from '@amadeus/models';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mirrorCharacterFeed } from './characterBridgeSync';
 

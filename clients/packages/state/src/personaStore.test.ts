@@ -15,8 +15,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 let answerList: (conversations: unknown[]) => void = () => {};
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   apiClient: {
     listPersonas: vi.fn(async () => [{ id: 1, name: 'Kurisu' }]),
     getAssistant: vi.fn(async () => ({ selected_persona_id: 1 })),
@@ -30,7 +30,7 @@ vi.mock('@kurisu/api', async (importOriginal) => ({
   },
 }));
 
-import { apiClient } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
 import { useConversationStore } from './conversationStore';
 import { usePersonaStore } from './personaStore';
 

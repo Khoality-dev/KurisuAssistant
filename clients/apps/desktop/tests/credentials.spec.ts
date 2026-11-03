@@ -11,7 +11,7 @@ import { test, expect } from './fixtures';
 import fs from 'fs';
 import path from 'path';
 
-const TOKEN_KEYS = ['kurisu_auth_token', 'kurisu_refresh_token'];
+const TOKEN_KEYS = ['amadeus_auth_token', 'amadeus_refresh_token'];
 
 test.describe('session tokens', () => {
   test('never reach localStorage, and survive a reload from the keychain', async ({

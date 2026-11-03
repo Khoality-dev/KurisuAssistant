@@ -2,7 +2,7 @@
  * This client's protocol constants must match the backend's (#93).
  *
  * The event names and the wire-protocol integer were retyped by hand from
- * `backend/kurisuassistant/websocket/events.py` and `version.py`, and nothing
+ * `backend/amadeus/websocket/events.py` and `version.py`, and nothing
  * checked that the copies agreed. They did not: `compact_context` was missing
  * from the union while `commands.ts` was sending it, and on two occasions two
  * open pull requests each claimed the same protocol number.

@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from kurisuassistant.utils.tokens import (
+from amadeus.utils.tokens import (
     CHARS_PER_TOKEN,
     PER_MESSAGE_OVERHEAD_TOKENS,
     TOKENS_PER_IMAGE,
@@ -39,7 +39,7 @@ class TestText:
     def test_a_run_of_text_is_measured_by_length_not_by_spaces(self):
         """Code, paths and JSON have few spaces and many tokens; the word count
         read them as almost free."""
-        dense = "conversation_id=12345;path=/var/lib/kurisu/data/image_storage/x.png"
+        dense = "conversation_id=12345;path=/var/lib/amadeus/data/image_storage/x.png"
         assert estimate_text_tokens(dense) > len(dense.split()) * 1.3
 
     def test_a_language_without_spaces_is_not_one_token(self):

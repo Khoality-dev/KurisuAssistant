@@ -29,9 +29,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kurisuassistant.character import assets, bundle, paths
-from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.routers import character, personas
+from amadeus.character import assets, bundle, paths
+from amadeus.core.deps import get_authenticated_user
+from amadeus.routers import character, personas
 from tests.test_character_uploads import glb, sha, vrm0, vrm1, vrma
 
 USER = 1
@@ -220,7 +220,7 @@ def vrm_meta(model: bytes, clip: bytes | None = None, clip_id="0a1b2c3d", **over
         clips.append({"id": clip_id, "name": "wave", "url": f"{PLACEHOLDER}vrma/{clip_id}",
                       "sha256": sha(clip), "bytes": len(clip), "loop": True})
         files.append({"path": f"vrma/{clip_id}.vrma", "bytes": len(clip), "sha256": sha(clip)})
-    from kurisuassistant.character.schema import VrmSettings
+    from amadeus.character.schema import VrmSettings
     settings = VrmSettings().model_dump(mode="json")
     settings["model"] = {"url": f"{PLACEHOLDER}vrm/model", "sha256": sha(model), "bytes": len(model),
                          "uploaded_at": "2026-09-20T10:00:00Z", "filename": "kurisu.vrm",

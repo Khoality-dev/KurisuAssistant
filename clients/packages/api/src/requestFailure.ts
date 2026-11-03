@@ -15,7 +15,7 @@
  * Blob body (speech) has its own describer.
  */
 
-import { WIRE_PROTOCOL } from '@kurisu/models';
+import { WIRE_PROTOCOL } from '@amadeus/models';
 import { config } from './config';
 import { describeMismatch } from './wireProtocol';
 
@@ -95,7 +95,7 @@ export function describeRequestFailure(err: unknown, fallback = 'Something went 
       case 403:
         return "Something in front of the server refused this device (HTTP 403). Check the server address, and whether the operator's proxy allows your network.";
       case 404:
-        return 'No KurisuAssistant server answers at this address (HTTP 404).';
+        return 'No Amadeus server answers at this address (HTTP 404).';
       case 426: {
         const body = (e.response.data ?? {}) as { server_wire_protocol?: unknown };
         const serverWire = Number(body.server_wire_protocol);

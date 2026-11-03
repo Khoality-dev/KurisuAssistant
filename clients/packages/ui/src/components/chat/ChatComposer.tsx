@@ -13,16 +13,16 @@ import {
   Typography,
   ClickAwayListener,
 } from '@mui/material';
-import { getCommands } from '@kurisu/state';
-import { useConversationStore } from '@kurisu/state';
+import { getCommands } from '@amadeus/state';
+import { useConversationStore } from '@amadeus/state';
 import {
   Send as SendIcon,
   Close as CloseIcon,
   Stop as StopIcon,
   Mic as MicIcon,
 } from '@mui/icons-material';
-import { useMicStore, getMicAmplitude } from '@kurisu/state';
-import type { PermissionMode } from '@kurisu/models';
+import { useMicStore, getMicAmplitude } from '@amadeus/state';
+import type { PermissionMode } from '@amadeus/models';
 import { PermissionModeChip } from './PermissionModeChip';
 
 /** Mic icon that lights up when sound is detected */

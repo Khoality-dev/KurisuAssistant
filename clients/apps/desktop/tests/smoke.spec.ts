@@ -2,7 +2,7 @@ import { test, expect } from './fixtures';
 
 test.describe('smoke', () => {
   test('login form renders', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'KurisuAssistant' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Amadeus' })).toBeVisible();
     await expect(page.getByLabel('Username')).toBeVisible();
     await expect(page.getByLabel('Password')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Login' })).toBeVisible();

@@ -5,7 +5,7 @@ import {
   NotificationsActive as ReminderIcon,
   NotificationsOff as OffIcon,
 } from '@mui/icons-material';
-import { useNotificationStore } from '@kurisu/state';
+import { useNotificationStore } from '@amadeus/state';
 
 /**
  * Settings → Notifications (#353): one switch for this device, and what can

@@ -43,7 +43,7 @@ the last one included, and disabling the one in use clears it.
 
 The screenshot above predates #334 and still shows **Default** and **Make default**.
 
-Each card says which character the persona has — "3D model · kurisu_v2.vrm", "3D model · none
+Each card says which character the persona has — "3D model · amadeus_v2.vrm", "3D model · none
 uploaded", "2D pose graph · 4 poses" or "No character". The edit dialog's **Character** block
 picks the system with two cards (2D pose graph, 3D model), each saying what that persona has of it;
 picking one saves at once and removes nothing, so switching back needs no upload (#242). Its button

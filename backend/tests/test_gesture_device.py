@@ -6,7 +6,7 @@ import types
 
 import pytest
 
-from kurisuassistant.models.gesture_detection import mediapipe_provider
+from amadeus.models.gesture_detection import mediapipe_provider
 
 
 @pytest.fixture()

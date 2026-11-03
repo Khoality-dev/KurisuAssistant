@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 
-from kurisuassistant.tools.calendar import CalendarCreateTool, CalendarListTool, CalendarRepeatTool
+from amadeus.tools.calendar import CalendarCreateTool, CalendarListTool, CalendarRepeatTool
 
 pytestmark = pytest.mark.db
 
@@ -22,11 +22,11 @@ LA = "America/Los_Angeles"
 def owner(system_client, monkeypatch):
     from zoneinfo import ZoneInfo
 
-    from kurisuassistant.calendar import zone
-    from kurisuassistant.core.accounts import provision_user
-    from kurisuassistant.core.security import hash_password
-    from kurisuassistant.db.repositories import UserRepository
-    from kurisuassistant.db.session import get_session
+    from amadeus.calendar import zone
+    from amadeus.core.accounts import provision_user
+    from amadeus.core.security import hash_password
+    from amadeus.db.repositories import UserRepository
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         user = UserRepository(session).create_user(f"cal-rtool-{uuid.uuid4().hex[:8]}", hash_password("x"))

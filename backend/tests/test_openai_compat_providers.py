@@ -12,10 +12,10 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from kurisuassistant.models.llm import create_llm_provider
-from kurisuassistant.models.llm.base import BaseLLMProvider
-from kurisuassistant.models.llm.nvidia_provider import NvidiaProvider
-from kurisuassistant.models.llm.poe_provider import PoeProvider, _KEY_CHECK_MODEL
+from amadeus.models.llm import create_llm_provider
+from amadeus.models.llm.base import BaseLLMProvider
+from amadeus.models.llm.nvidia_provider import NvidiaProvider
+from amadeus.models.llm.poe_provider import PoeProvider, _KEY_CHECK_MODEL
 
 
 class FakeResponse:
@@ -65,9 +65,9 @@ def delta(content=None, reasoning=None, tool_calls=None, finish=None):
     return {"choices": [{"delta": d, "finish_reason": finish}]}
 
 
-POST = "kurisuassistant.models.llm.openai_compat.requests.post"
-GET = "kurisuassistant.models.llm.openai_compat.requests.get"
-POE_POST = "kurisuassistant.models.llm.poe_provider.requests.post"
+POST = "amadeus.models.llm.openai_compat.requests.post"
+GET = "amadeus.models.llm.openai_compat.requests.get"
+POE_POST = "amadeus.models.llm.poe_provider.requests.post"
 
 CONVERSATION = [
     {"role": "system", "content": "Be brief."},

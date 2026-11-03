@@ -14,14 +14,9 @@
  * `notifications_read` from whichever device read some.
  */
 
-import {
-  WIRE_PROTOCOL,
-  WS_AUTH_SUBPROTOCOL,
-  WS_WIRE_PROTOCOL_MISMATCH,
-  WS_WIRE_SUBPROTOCOL_PREFIX,
-  type NotificationEvent,
-} from '@kurisu/models';
+import { WS_WIRE_PROTOCOL_MISMATCH, type NotificationEvent } from '@amadeus/models';
 import { config } from './config';
+import { webSocketProtocols } from './socketProtocols';
 
 export interface NotificationSocketListener {
   /** On every connect: what the server says is unread, oldest first. */
@@ -47,6 +42,7 @@ export class NotificationSocket {
   private enabled = false;
   private stopped = false;
   private attempt = 0;
+  private useLegacyHandshake = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly listeners = new Set<NotificationSocketListener>();
 
@@ -90,14 +86,13 @@ export class NotificationSocket {
     const url = `${this.options.baseUrl().replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')}/ws/notifications`;
     // A renderer cannot set headers on a WebSocket: the token and the wire
     // protocol ride as subprotocol entries, as on the chat socket.
-    const ws = new WebSocket(url, [
-      WS_AUTH_SUBPROTOCOL,
-      this.token!,
-      `${WS_WIRE_SUBPROTOCOL_PREFIX}${WIRE_PROTOCOL}`,
-    ]);
+    const legacyOnly = this.useLegacyHandshake;
+    let opened = false;
+    const ws = new WebSocket(url, webSocketProtocols(this.token!, legacyOnly));
     this.ws = ws;
 
     ws.onopen = () => {
+      opened = true;
       this.attempt = 0;
     };
 
@@ -125,7 +120,16 @@ export class NotificationSocket {
         this.stopped = true;
         return;
       }
-      if (event.code === AUTH_FAILED) {
+      if (event.code === AUTH_FAILED || (!legacyOnly && !opened)) {
+        if (!legacyOnly) {
+          // Servers predating the rename only inspect the first auth marker.
+          // Retry once with their three-entry handshake before treating the
+          // token as invalid. A new server still receives the new spelling first.
+          this.useLegacyHandshake = true;
+          this.reconcile();
+          return;
+        }
+        this.useLegacyHandshake = false;
         // The new token arrives through setToken, which reopens.
         this.options.refreshToken().catch(() => {});
         return;
@@ -175,7 +179,7 @@ export class NotificationSocket {
 }
 
 /**
- * The one this window holds. Started and stopped by `@kurisu/state`'s
+ * The one this window holds. Started and stopped by `@amadeus/state`'s
  * notification store; the token comes from `apiClient` like the chat socket's.
  */
 export const notificationSocket = new NotificationSocket({

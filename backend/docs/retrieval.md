@@ -1,7 +1,7 @@
 # Recall: retrieval over past conversations and stored documents
 
 Issue #6. The assistant can search everything the user has said to it before,
-and every readable file in their Kurisu Drive, and answer by quoting what was
+and every readable file in their Amadeus Drive, and answer by quoting what was
 actually said or written — with the conversation, speaker, time and message id,
 or the file path and page — instead of paraphrasing a summary.
 

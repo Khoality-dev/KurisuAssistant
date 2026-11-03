@@ -8,8 +8,8 @@
  * it is holding and a driver never asks which host it is in (#239).
  *
  * Nothing in this file names a canvas, a DOM type or a rendering library: the
- * `@kurisu/vrm` driver and the 2D pose-graph adapter both implement it, and the
- * conformance cases in `@kurisu/vrm/testing` run against either.
+ * `@amadeus/vrm` driver and the 2D pose-graph adapter both implement it, and the
+ * conformance cases in `@amadeus/vrm/testing` run against either.
  */
 import type { CharacterKind, ParsedCharacterConfig, VrmEmotion } from './character';
 

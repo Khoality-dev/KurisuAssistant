@@ -13,12 +13,12 @@ name: Release
 # and a deployment checks it out and rebuilds (backend/docs/operations.md).
 #
 # One version number, the tag's. The `check` job refuses a tag that is not
-# vX.Y.Z with minor and patch under 100 (asked of backend/kurisuassistant/
+# vX.Y.Z with minor and patch under 100 (asked of backend/amadeus/
 # version.py, which the backend's tests cover) or that is not on main. The
 # desktop's package.json version and the Android versionName / versionCode are
 # set FROM the tag at build time — the committed client values are what a local
 # build gets — and the backend reports it once a deployment builds from the tag
-# (KURISU_VERSION, backend/docs/development.md).
+# (AMADEUS_VERSION, backend/docs/development.md).
 #
 # How installed apps find it:
 #   - desktop: electron-updater reads this repository's `releases/latest`
@@ -37,12 +37,12 @@ name: Release
 # stop it; then delete that job.
 #
 # Required secrets (Android signing only — #229):
-#   KURISU_KEYSTORE_BASE64   — release keystore, base64-encoded
-#   KURISU_KEYSTORE_PASSWORD — its password; the key inside uses the same one
+#   AMADEUS_KEYSTORE_BASE64   — release keystore, base64-encoded
+#   AMADEUS_KEYSTORE_PASSWORD — its password; the key inside uses the same one
 #                              (a PKCS12 keystore has exactly one), and the key
 #                              alias is read from the keystore at build time
 # Optional secret (push to phones — #353):
-#   KURISU_GOOGLE_SERVICES_JSON — the Firebase project's google-services.json,
+#   AMADEUS_GOOGLE_SERVICES_JSON — the Firebase project's google-services.json,
 #                              written to clients/android/app/ so the APK gets
 #                              Firebase Cloud Messaging. Unset: the APK builds
 #                              the same, without background push.
@@ -117,7 +117,7 @@ jobs:
         env:
           TAG: ${{ steps.resolve.outputs.tag }}
         run: |
-          python3 backend/kurisuassistant/version.py "$TAG" || {
+          python3 backend/amadeus/version.py "$TAG" || {
             echo "::error::'$TAG' cannot be released (see above)." >&2
             exit 1
           }
@@ -210,9 +210,9 @@ jobs:
     # Promote secrets to job-level env so the `if:` conditionals below can read them.
     # Empty string when the secret isn't set — that's how we detect missing config.
     env:
-      KURISU_KEYSTORE_BASE64: ${{ secrets.KURISU_KEYSTORE_BASE64 }}
-      KURISU_KEYSTORE_PASSWORD: ${{ secrets.KURISU_KEYSTORE_PASSWORD }}
-      KURISU_GOOGLE_SERVICES_JSON: ${{ secrets.KURISU_GOOGLE_SERVICES_JSON }}
+      AMADEUS_KEYSTORE_BASE64: ${{ secrets.AMADEUS_KEYSTORE_BASE64 }}
+      AMADEUS_KEYSTORE_PASSWORD: ${{ secrets.AMADEUS_KEYSTORE_PASSWORD }}
+      AMADEUS_GOOGLE_SERVICES_JSON: ${{ secrets.AMADEUS_GOOGLE_SERVICES_JSON }}
 
     steps:
       - name: Checkout the tag
@@ -234,9 +234,9 @@ jobs:
       # naming the values it needs — rather than publishing an APK signed with
       # the debug key to the channel real users update from (#100).
       - name: Decode release keystore
-        if: env.KURISU_KEYSTORE_BASE64 != ''
+        if: env.AMADEUS_KEYSTORE_BASE64 != ''
         run: |
-          printf '%s' "$KURISU_KEYSTORE_BASE64" | base64 -d > kurisu-release.jks
+          printf '%s' "$AMADEUS_KEYSTORE_BASE64" | base64 -d > amadeus-release.jks
 
       # The alias is not a secret — it is the name of the one key entry in the
       # keystore — so it is read from the keystore rather than configured. The
@@ -246,34 +246,34 @@ jobs:
       # build step with Gradle's message; convert it (keytool -importkeystore
       # -deststoretype pkcs12) rather than adding a secret.
       - name: Write .env for Gradle
-        if: env.KURISU_KEYSTORE_BASE64 != ''
+        if: env.AMADEUS_KEYSTORE_BASE64 != ''
         run: |
-          alias="$(keytool -list -keystore kurisu-release.jks -storepass "$KURISU_KEYSTORE_PASSWORD" 2>/dev/null \
+          alias="$(keytool -list -keystore amadeus-release.jks -storepass "$AMADEUS_KEYSTORE_PASSWORD" 2>/dev/null \
             | sed -nE 's/^([^,]+), .*PrivateKeyEntry.*/\1/p' | head -1)"
           if [[ -z "$alias" ]]; then
             echo "No private key entry found in the keystore (wrong password, or not a keystore)" >&2
             exit 1
           fi
           {
-            echo "KURISU_KEYSTORE=kurisu-release.jks"
-            echo "KURISU_KEYSTORE_PASSWORD=$KURISU_KEYSTORE_PASSWORD"
-            echo "KURISU_KEY_ALIAS=$alias"
-            echo "KURISU_KEY_PASSWORD=$KURISU_KEYSTORE_PASSWORD"
+            echo "AMADEUS_KEYSTORE=amadeus-release.jks"
+            echo "AMADEUS_KEYSTORE_PASSWORD=$AMADEUS_KEYSTORE_PASSWORD"
+            echo "AMADEUS_KEY_ALIAS=$alias"
+            echo "AMADEUS_KEY_PASSWORD=$AMADEUS_KEYSTORE_PASSWORD"
           } > .env
 
       # Push to phones (#353): app/build.gradle.kts applies the google-services
       # plugin only when this file exists, so without the secret the APK simply
       # has no background push. Never committed (clients/android/.gitignore).
       - name: Write google-services.json
-        if: env.KURISU_GOOGLE_SERVICES_JSON != ''
-        run: printf '%s' "$KURISU_GOOGLE_SERVICES_JSON" > app/google-services.json
+        if: env.AMADEUS_GOOGLE_SERVICES_JSON != ''
+        run: printf '%s' "$AMADEUS_GOOGLE_SERVICES_JSON" > app/google-services.json
 
       # versionName and versionCode come from the tag (app/build.gradle.kts
-      # reads kurisu.releaseVersion); the committed values are the dev fallback.
+      # reads amadeus.releaseVersion); the committed values are the dev fallback.
       - name: Build prod release APK
         env:
           VERSION: ${{ needs.check.outputs.version }}
-        run: chmod +x ./gradlew && ./gradlew assembleProdRelease -Pkurisu.releaseVersion="$VERSION"
+        run: chmod +x ./gradlew && ./gradlew assembleProdRelease -Pamadeus.releaseVersion="$VERSION"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

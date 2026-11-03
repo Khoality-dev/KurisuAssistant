@@ -14,19 +14,19 @@ from typing import get_args
 
 import pytest
 
-from kurisuassistant.character.emotion_source import (
+from amadeus.character.emotion_source import (
     EMOTION_LABEL_ORDER,
     EMOTION_LABELS,
     emotion_channel_enabled,
     utf16_length,
 )
-from kurisuassistant.character.emotion_tags import (
+from amadeus.character.emotion_tags import (
     MAX_LABEL,
     TAG_OPEN,
     EmotionTagStripper,
     split_at_utf16,
 )
-from kurisuassistant.character.schema import VrmEmotion
+from amadeus.character.schema import VrmEmotion
 
 
 def run(chunks):
@@ -214,7 +214,7 @@ class TestTheLabelSet:
         assert len(EMOTION_LABEL_ORDER) == len(EMOTION_LABELS)
 
     def test_every_label_is_in_the_prompt(self):
-        from kurisuassistant.agents.main import EXPRESSION_PROMPT
+        from amadeus.agents.main import EXPRESSION_PROMPT
 
         for label in EMOTION_LABELS:
             assert f"[[emotion:{label}]]" in EXPRESSION_PROMPT

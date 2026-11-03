@@ -15,8 +15,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from kurisuassistant.calendar import delivery
-from kurisuassistant.workers import reminders
+from amadeus.calendar import delivery
+from amadeus.workers import reminders
 
 pytestmark = pytest.mark.db
 
@@ -25,11 +25,11 @@ pytestmark = pytest.mark.db
 def user_id(system_client, monkeypatch):
     from zoneinfo import ZoneInfo
 
-    from kurisuassistant.calendar import zone
-    from kurisuassistant.core.accounts import provision_user
-    from kurisuassistant.core.security import hash_password
-    from kurisuassistant.db.repositories import UserRepository
-    from kurisuassistant.db.session import get_session
+    from amadeus.calendar import zone
+    from amadeus.core.accounts import provision_user
+    from amadeus.core.security import hash_password
+    from amadeus.db.repositories import UserRepository
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         user = UserRepository(session).create_user(f"cal-rep-{uuid.uuid4().hex[:8]}", hash_password("x"))
@@ -59,8 +59,8 @@ def _minute(value: datetime) -> datetime:
 
 
 def _series(user_id, *, first, next_due=None, title="Take the pills"):
-    from kurisuassistant.db.models import CalendarEntry
-    from kurisuassistant.db.session import get_session
+    from amadeus.db.models import CalendarEntry
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         row = CalendarEntry(
@@ -73,16 +73,16 @@ def _series(user_id, *, first, next_due=None, title="Take the pills"):
 
 
 def _done(entry_id, at):
-    from kurisuassistant.db.models import CalendarOccurrence
-    from kurisuassistant.db.session import get_session
+    from amadeus.db.models import CalendarOccurrence
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         session.add(CalendarOccurrence(entry_id=entry_id, occurs_at=at, done_at=datetime.utcnow()))
 
 
 def _row(entry_id):
-    from kurisuassistant.db.models import CalendarEntry
-    from kurisuassistant.db.session import get_session
+    from amadeus.db.models import CalendarEntry
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         row = session.get(CalendarEntry, entry_id)

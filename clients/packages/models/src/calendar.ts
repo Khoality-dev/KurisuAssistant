@@ -86,7 +86,7 @@ export interface CalendarEntryUpdate {
   occurrence_at?: string;
 }
 
-/** The tools the assistant keeps the calendar with (`backend/kurisuassistant/tools/calendar.py`). */
+/** The tools the assistant keeps the calendar with (`backend/amadeus/tools/calendar.py`). */
 export const CALENDAR_TOOL_NAMES = ['calendar_create', 'calendar_list', 'calendar_move', 'calendar_repeat', 'calendar_delete'] as const;
 
 /** `Every day`, `Every weekday`, `Every Monday and Thursday`; null when it does not repeat. */

@@ -57,7 +57,7 @@ test.describe('persona export and import with the character', () => {
 
     await login(page);
     await openPersonas(page);
-    await exportButtonOf(page, '3D model · kurisu_v2.vrm').click();
+    await exportButtonOf(page, '3D model · amadeus_v2.vrm').click();
 
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText('Export Kurisu')).toBeVisible();
@@ -84,7 +84,7 @@ test.describe('persona export and import with the character', () => {
 
     await login(page);
     await openPersonas(page);
-    await exportButtonOf(page, '3D model · kurisu_v2.vrm').click();
+    await exportButtonOf(page, '3D model · amadeus_v2.vrm').click();
     const dialog = page.getByRole('dialog');
     const include = dialog.getByLabel(/Its 3D character/);
     await expect(include).toBeChecked({ timeout: 10_000 });
@@ -108,7 +108,7 @@ test.describe('persona export and import with the character', () => {
 
     await expect(page.getByText('Persona "Kurisu (2)" imported with its character.')).toBeVisible({ timeout: 10_000 });
     expect(mock.lastBundleImport).toEqual({ bytes: bundle.byteLength, personaId: 2 });
-    await expect(page.getByText('3D model · kurisu_v2.vrm')).toHaveCount(2);
+    await expect(page.getByText('3D model · amadeus_v2.vrm')).toHaveCount(2);
   });
 
   test('a bundle that does not fit the 3D storage says so and adds nothing', async ({ page, mock, appPaths }) => {

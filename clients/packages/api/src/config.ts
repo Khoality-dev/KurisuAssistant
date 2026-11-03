@@ -1,5 +1,5 @@
 import { storage } from './storage';
-import { resolveBridge } from '@kurisu/platform';
+import { resolveBridge } from '@amadeus/platform';
 
 export const config = {
   get apiBaseUrl(): string {

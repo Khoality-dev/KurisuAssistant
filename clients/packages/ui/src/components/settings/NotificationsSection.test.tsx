@@ -5,8 +5,8 @@
 import { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { notificationSocket, storage } from '@kurisu/api';
-import { useNotificationStore } from '@kurisu/state';
+import { notificationSocket, storage } from '@amadeus/api';
+import { useNotificationStore } from '@amadeus/state';
 import { NotificationsSection } from './NotificationsSection';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

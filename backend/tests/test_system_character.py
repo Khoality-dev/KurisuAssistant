@@ -71,7 +71,7 @@ def stranger(account):
 
 
 def persona_dir(persona_id):
-    from kurisuassistant.character import paths
+    from amadeus.character import paths
 
     return paths.CHAR_ASSETS_DIR / str(persona_id)
 
@@ -106,10 +106,10 @@ class TestTheModel:
         assert stored == []
 
     def test_the_quota_is_the_accounts_and_is_enforced_in_the_transaction(self, account, persona, monkeypatch):
-        from kurisuassistant.character import assets
+        from amadeus.character import assets
 
         assert put_model(account, persona).status_code == 200
-        second = account.client.post("/personas", json={"name": "Amadeus", "character_config": {"kind": "vrm"}}, headers=account.headers).json()["id"]
+        second = account.client.post("/personas", json={"name": "Mozart", "character_config": {"kind": "vrm"}}, headers=account.headers).json()["id"]
         other_model = MODEL + b" "  # a different file, so it is not the same bytes twice
         monkeypatch.setattr(assets, "QUOTA_BYTES", len(MODEL) + len(other_model) - 1)
 

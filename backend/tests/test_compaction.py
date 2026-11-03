@@ -18,8 +18,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kurisuassistant.websocket.handlers import ChatSessionHandler
-from kurisuassistant.websocket.events import (
+from amadeus.websocket.handlers import ChatSessionHandler
+from amadeus.websocket.events import (
     CompactContextEvent,
     ContextInfoEvent,
     ErrorEvent,
@@ -80,7 +80,7 @@ class TestHandleCompactContext:
         with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=CONTEXT), \
              patch.object(handler, "_generate_summary", return_value="SUMMARY TEXT"), \
              patch.object(handler, "_compact_in_place", new_callable=AsyncMock) as compact, \
-             patch("kurisuassistant.websocket.handlers.get_db_service", lambda: db):
+             patch("amadeus.websocket.handlers.get_db_service", lambda: db):
             await handler._handle_compact_context(CompactContextEvent(conversation_id=5))
 
         compact.assert_awaited_once_with(5, "SUMMARY TEXT", 77)
@@ -100,7 +100,7 @@ class TestHandleCompactContext:
 
         with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=CONTEXT), \
              patch.object(handler, "_compact_in_place", new_callable=AsyncMock) as compact, \
-             patch("kurisuassistant.websocket.handlers.get_db_service", lambda: db):
+             patch("amadeus.websocket.handlers.get_db_service", lambda: db):
             await handler._handle_compact_context(CompactContextEvent(conversation_id=5))
 
         error = find_event(ws, "error")
@@ -116,7 +116,7 @@ class TestHandleCompactContext:
 
         with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=("", 0, [], 0)), \
              patch.object(handler, "_compact_in_place", new_callable=AsyncMock) as compact, \
-             patch("kurisuassistant.websocket.handlers.get_db_service", lambda: db):
+             patch("amadeus.websocket.handlers.get_db_service", lambda: db):
             await handler._handle_compact_context(CompactContextEvent(conversation_id=5))
 
         assert events_of(ws, "context_info") == []
@@ -133,7 +133,7 @@ class TestHandleCompactContext:
         with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=CONTEXT), \
              patch.object(handler, "_generate_summary", return_value=""), \
              patch.object(handler, "_compact_in_place", new_callable=AsyncMock) as compact, \
-             patch("kurisuassistant.websocket.handlers.get_db_service", lambda: db):
+             patch("amadeus.websocket.handlers.get_db_service", lambda: db):
             await handler._handle_compact_context(CompactContextEvent(conversation_id=5))
 
         error = find_event(ws, "error")
@@ -153,7 +153,7 @@ class TestHandleCompactContext:
         with patch.object(handler, "_load_context_messages", new_callable=AsyncMock, return_value=CONTEXT), \
              patch.object(handler, "_generate_summary", side_effect=ConnectionError("refused")), \
              patch.object(handler, "_compact_in_place", new_callable=AsyncMock), \
-             patch("kurisuassistant.websocket.handlers.get_db_service", lambda: db):
+             patch("amadeus.websocket.handlers.get_db_service", lambda: db):
             with pytest.raises(ConnectionError):
                 await handler._handle_compact_context(CompactContextEvent(conversation_id=5))
 
@@ -171,7 +171,7 @@ class TestHandleCompactContext:
 class TestTheForkIsGone:
     def test_no_conversation_switched_event_exists(self):
         """One compaction model, not two half-present ones (#99)."""
-        import kurisuassistant.websocket.events as events
+        import amadeus.websocket.events as events
 
         assert not hasattr(events, "ConversationSwitchedEvent")
         assert "conversation_switched" not in {e.value for e in events.EventType}
@@ -179,7 +179,7 @@ class TestTheForkIsGone:
     def test_the_handler_no_longer_creates_conversations_to_compact(self):
         import inspect
 
-        from kurisuassistant.websocket import handlers
+        from amadeus.websocket import handlers
 
         source = inspect.getsource(handlers)
         assert "_create_summary_conversation" not in source

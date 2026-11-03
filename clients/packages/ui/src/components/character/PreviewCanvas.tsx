@@ -4,9 +4,9 @@ import {
   Typography,
   CircularProgress,
 } from '@mui/material';
-import type { PoseConfig } from '@kurisu/models';
+import type { PoseConfig } from '@amadeus/models';
 import { CanvasCompositor } from '../../videocall/engine/CanvasCompositor';
-import { config } from '@kurisu/api';
+import { config } from '@amadeus/api';
 
 interface PreviewCanvasProps {
   poseConfig: PoseConfig;

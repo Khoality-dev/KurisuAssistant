@@ -8,7 +8,7 @@
  * clicking it brings the window back, opens where it came from and reads it on
  * the server, and one read on another device is taken down here. The main
  * process records what it showed and took down when the suite runs it
- * (`KURISU_E2E`), because an OS notification is not something a test can see.
+ * (`AMADEUS_E2E`), because an OS notification is not something a test can see.
  */
 
 import { test, expect } from './fixtures';
@@ -52,13 +52,13 @@ const bell = (page: Page) => page.getByRole('button', { name: /^Notifications/ }
 type Shown = { id: number; title: string; body: string; target: { kind: string; conversationId?: number; reminderId?: number | null } };
 
 const shown = (app: ElectronApplication) =>
-  app.evaluate(() => ((globalThis as any).__kurisuNotifications?.shown ?? []) as Shown[]);
+  app.evaluate(() => ((globalThis as any).__amadeusNotifications?.shown ?? []) as Shown[]);
 
 const closed = (app: ElectronApplication) =>
-  app.evaluate(() => ((globalThis as any).__kurisuNotifications?.closed ?? []) as number[]);
+  app.evaluate(() => ((globalThis as any).__amadeusNotifications?.closed ?? []) as number[]);
 
 const clickShown = (app: ElectronApplication, index: number) =>
-  app.evaluate((_electron, i) => (globalThis as any).__kurisuNotifications.click(i), index);
+  app.evaluate((_electron, i) => (globalThis as any).__amadeusNotifications.click(i), index);
 
 const windowVisible = (app: ElectronApplication) =>
   app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false);

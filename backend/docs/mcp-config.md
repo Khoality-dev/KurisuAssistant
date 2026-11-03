@@ -1,6 +1,6 @@
 # MCP Server Configuration
 
-KurisuAssistant connects to external tool servers using the
+Amadeus connects to external tool servers using the
 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
 
 **Servers are configured per user, in the database, through the API.** They are

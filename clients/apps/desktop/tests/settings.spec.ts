@@ -11,7 +11,7 @@
 
 import { test, expect } from './fixtures';
 import { Page } from '@playwright/test';
-import { WIRE_PROTOCOL } from '@kurisu/models';
+import { WIRE_PROTOCOL } from '@amadeus/models';
 import { MOCK_BACKEND_VERSION, VRM_CHARACTER_WITH_MODEL } from './mock/server';
 
 async function login(page: Page) {
@@ -43,7 +43,7 @@ test.describe('settings', () => {
     for (const label of [
       'Account', 'Voice', 'TTS & ASR', 'Appearance',
       'Assistant', 'Personas',
-      'Tools', 'Skills', 'Kurisu Drive', 'Notifications', 'Host Access', 'Face Identities', 'Extensions',
+      'Tools', 'Skills', 'Amadeus Drive', 'Notifications', 'Host Access', 'Face Identities', 'Extensions',
     ]) {
       await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
     }
@@ -151,7 +151,7 @@ test.describe('settings', () => {
     await login(page);
     await openSettings(page);
     await page.getByText('Personas', { exact: true }).first().click();
-    const card = page.getByText('3D model · kurisu_v2.vrm');
+    const card = page.getByText('3D model · amadeus_v2.vrm');
     await expect(card).toBeVisible({ timeout: 10_000 });
     await card.click();
     await page.getByRole('button', { name: /Set up 3D character/ }).click();

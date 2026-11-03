@@ -13,8 +13,8 @@
  * frame the speech clock's position passes its `delayMs`. The resting emotion
  * is the face between cues, so it becomes the driver's `default_expression`.
  */
-import type { DriverInput, ParsedCharacterConfig, SpeechSegment, SpeechSync, VrmEmotion, VrmSettings } from '@kurisu/models';
-import { createSpeechClockState, sampleSpeech } from '@kurisu/models';
+import type { DriverInput, ParsedCharacterConfig, SpeechSegment, SpeechSync, VrmEmotion, VrmSettings } from '@amadeus/models';
+import { createSpeechClockState, sampleSpeech } from '@amadeus/models';
 import type { VrmDriver } from '../driver/VrmDriver';
 import { HostMessageError, parseHostMessage, type PageEvent } from './host';
 

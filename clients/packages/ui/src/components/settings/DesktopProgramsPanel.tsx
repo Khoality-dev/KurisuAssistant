@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Button, Paper, Typography } from '@mui/material';
-import type { McpServerInfo } from '@kurisu/platform';
-import { resolveBridge } from '@kurisu/platform';
+import type { McpServerInfo } from '@amadeus/platform';
+import { resolveBridge } from '@amadeus/platform';
 
 /**
  * What this desktop lets other programs do, and what it may launch: the MCP

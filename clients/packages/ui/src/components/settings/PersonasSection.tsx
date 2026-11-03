@@ -25,9 +25,9 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { AnimatePresence } from 'framer-motion';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
-import { usePersonaStore } from '@kurisu/state';
-import { parseCharacterConfig, type Persona, type PersonaExportSize, type VoiceInfo } from '@kurisu/models';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
+import { usePersonaStore } from '@amadeus/state';
+import { parseCharacterConfig, type Persona, type PersonaExportSize, type VoiceInfo } from '@amadeus/models';
 import {
   AccountTree as GraphIcon,
   Animation as AnimationIcon,

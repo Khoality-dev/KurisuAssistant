@@ -13,7 +13,7 @@
  * shows as its text arrives, debounced, with a hold sized to its sentence.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EmotionCue, Message } from '@kurisu/models';
+import type { EmotionCue, Message } from '@amadeus/models';
 import {
   restingCueOf,
   selectCuesForSegment,

@@ -9,14 +9,14 @@
  * session requests. Pure — the hook around it is one `useEffect` — so the
  * gating and the handshake order are tests, not comments.
  */
-import type { CharacterWindowAPI, PersonaCharacterData } from '@kurisu/platform';
+import type { CharacterWindowAPI, PersonaCharacterData } from '@amadeus/platform';
 import {
   characterFeed,
   emotionHolds,
   onCharacterFeed,
   useCharacterStore,
   type CharacterFeedEvent,
-} from '@kurisu/state';
+} from '@amadeus/state';
 import { greetCharacterWindow } from './characterSession';
 
 export interface CharacterBridgeDeps {

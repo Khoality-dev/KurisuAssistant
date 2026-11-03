@@ -10,7 +10,7 @@
  * which is how the character window, the inline panel (#241) and the page an
  * Android WebView hosts (#245) draw the same thing.
  *
- * A VRM persona (#240) is drawn by `@kurisu/vrm`, imported only when a VRM
+ * A VRM persona (#240) is drawn by `@amadeus/vrm`, imported only when a VRM
  * persona is on screen and only after `supportsWebGL` has said this display
  * can draw one: the engine is three.js, and neither a 2D-only user's bundle
  * nor a machine without hardware graphics should pay for it. While the model
@@ -28,14 +28,14 @@ import {
   takeSegmentCue,
   type CharacterDriver,
   type ParsedCharacterConfig,
-} from '@kurisu/models';
-import { fetchAuthedBytes } from '@kurisu/api';
-import { characterFeed, takeEmotion, takeGestures } from '@kurisu/state';
-import { supportsWebGL } from '@kurisu/vrm/probe';
+} from '@amadeus/models';
+import { fetchAuthedBytes } from '@amadeus/api';
+import { characterFeed, takeEmotion, takeGestures } from '@amadeus/state';
+import { supportsWebGL } from '@amadeus/vrm/probe';
 import { createPoseGraphDriver } from './PoseGraphDriver';
 
-/** The part of `@kurisu/vrm` the surface needs; a type only, so nothing is imported until a VRM persona appears. */
-export type VrmModule = Pick<typeof import('@kurisu/vrm'), 'createVrmDriver'>;
+/** The part of `@amadeus/vrm` the surface needs; a type only, so nothing is imported until a VRM persona appears. */
+export type VrmModule = Pick<typeof import('@amadeus/vrm'), 'createVrmDriver'>;
 
 export interface MakeDriverDeps {
   /** Loads the VRM engine. The surface's own prop, so a test can see it was never asked. */
@@ -95,7 +95,7 @@ export const SURFACE_TEXT = {
 /** The feed's timestamps are `Date.now()` values; one instance, so the loop effect is stable. */
 const wallClock = () => Date.now();
 
-const importVrmEngine = (): Promise<VrmModule> => import('@kurisu/vrm');
+const importVrmEngine = (): Promise<VrmModule> => import('@amadeus/vrm');
 
 function defaultMakeDriver(character: ParsedCharacterConfig, canvas: HTMLCanvasElement, deps: MakeDriverDeps): CharacterDriver | null | Promise<CharacterDriver | null> {
   if (character.kind === 'pose_graph' && character.poseTree) return createPoseGraphDriver(canvas);

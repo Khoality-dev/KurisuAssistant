@@ -2,7 +2,7 @@
  * The words around exporting a persona with its character, and importing one (#248).
  */
 import { describe, expect, it } from 'vitest';
-import { CharacterUploadError } from '@kurisu/api';
+import { CharacterUploadError } from '@amadeus/api';
 import { exportedFilename, importFailure, includeLine, isBundle, meteredLine } from './personaExport';
 
 describe('what the export dialog says it will include', () => {

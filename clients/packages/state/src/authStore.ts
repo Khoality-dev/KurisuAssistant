@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import { deviceTimezone, fillTimezoneIfUnset } from './timezone';
-import { apiClient } from '@kurisu/api';
-import { forgetDriveCache } from '@kurisu/api';
-import { storage } from '@kurisu/api';
-import { resolveBridge } from '@kurisu/platform';
+import { apiClient } from '@amadeus/api';
+import { forgetDriveCache } from '@amadeus/api';
+import { storage } from '@amadeus/api';
+import { resolveBridge } from '@amadeus/platform';
 import { usePersonaStore } from './personaStore';
-import type { UserProfile } from '@kurisu/models';
+import type { UserProfile } from '@amadeus/models';
 
 interface AuthState {
   isAuthenticated: boolean;

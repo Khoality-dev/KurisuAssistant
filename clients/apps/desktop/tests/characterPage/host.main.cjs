@@ -9,6 +9,6 @@ app.whenReady().then(() => {
     height: 480,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
-  win.loadURL(process.env.KURISU_PAGE_URL);
+  win.loadURL(process.env.AMADEUS_PAGE_URL);
 });
 app.on('window-all-closed', () => app.quit());

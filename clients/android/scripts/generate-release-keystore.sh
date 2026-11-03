@@ -14,7 +14,7 @@
 # Env vars (skip the matching prompt if set):
 #   KEYSTORE_PASSWORD   — store password (also used for key password by default)
 #   KEY_PASSWORD        — key password (defaults to KEYSTORE_PASSWORD)
-#   DNAME               — full distinguished name, e.g. "CN=Kurisu, OU=Dev, O=Kurisu, L=City, ST=State, C=US"
+#   DNAME               — full distinguished name, e.g. "CN=Amadeus, OU=Dev, O=Amadeus, L=City, ST=State, C=US"
 #
 # Requires `keytool` on PATH (ships with any JDK, e.g. the Android Studio JBR).
 
@@ -24,8 +24,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Defaults
-OUT_PATH="${REPO_ROOT}/kurisu-release.jks"
-ALIAS="kurisu"
+OUT_PATH="${REPO_ROOT}/amadeus-release.jks"
+ALIAS="amadeus"
 VALIDITY_DAYS=10000  # ~27 years; Play Store recommends >= 25 years
 
 # Parse args
@@ -77,13 +77,13 @@ if [[ -z "${DNAME:-}" ]]; then
   echo
   echo "Distinguished name for the certificate (used for identification, not validation)."
   echo "You can press Enter to accept the defaults — these don't need to be real."
-  read -r -p "  Common Name (CN)              [Kurisu Assistant]: " CN
+  read -r -p "  Common Name (CN)              [Amadeus]: " CN
   read -r -p "  Organizational Unit (OU)      [Dev]:               " OU
-  read -r -p "  Organization (O)              [Kurisu]:            " O
+  read -r -p "  Organization (O)              [Amadeus]:            " O
   read -r -p "  Locality / City (L)           [Unknown]:           " L
   read -r -p "  State / Province (ST)         [Unknown]:           " ST
   read -r -p "  Country (C, two-letter)       [US]:                " C
-  CN="${CN:-Kurisu Assistant}"; OU="${OU:-Dev}"; O="${O:-Kurisu}"
+  CN="${CN:-Amadeus}"; OU="${OU:-Dev}"; O="${O:-Amadeus}"
   L="${L:-Unknown}"; ST="${ST:-Unknown}"; C="${C:-US}"
   DNAME="CN=${CN}, OU=${OU}, O=${O}, L=${L}, ST=${ST}, C=${C}"
 fi
@@ -129,10 +129,10 @@ Next:
    updates that install over the current build.
 
 2. Fill in <repo-root>/.env (copy from .env.template if it doesn't exist):
-     KURISU_KEYSTORE=${REL_PATH}
-     KURISU_KEYSTORE_PASSWORD=<the keystore password you just chose>
-     KURISU_KEY_ALIAS=${ALIAS}
-     KURISU_KEY_PASSWORD=<the key password you just chose>
+     AMADEUS_KEYSTORE=${REL_PATH}
+     AMADEUS_KEYSTORE_PASSWORD=<the keystore password you just chose>
+     AMADEUS_KEY_ALIAS=${ALIAS}
+     AMADEUS_KEY_PASSWORD=<the key password you just chose>
 
 3. Push the values to GitHub Actions:
      scripts/push-release-secrets.sh

@@ -23,7 +23,7 @@ import {
   type CalendarEntryUpdate,
   type CalendarRepeat,
   type CalendarWeekday,
-} from '@kurisu/models';
+} from '@amadeus/models';
 
 /** The Repeats choice; `once` is no repeat. */
 type RepeatChoice = 'once' | CalendarRepeat;

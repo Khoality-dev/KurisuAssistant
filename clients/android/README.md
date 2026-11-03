@@ -1,12 +1,12 @@
-# Kurisu Assistant Android
+# Amadeus Android
 
-The Android client for [Kurisu Assistant](../../README.md). It requires Android 8.0 (API 26) or newer.
+The Android client for [Amadeus](../../README.md). It requires Android 8.0 (API 26) or newer.
 
 See [Screens](docs/screens.md) for what the app looks like and the model it presents.
 
 ## Install
 
-Download the latest APK from the [Android releases page](https://github.com/Khoality-dev/KurisuAssistant/releases/latest), open it, and allow installation from your browser or file manager if Android asks.
+Download the latest APK from the [Android releases page](https://github.com/Khoality-dev/Amadeus/releases/latest), open it, and allow installation from your browser or file manager if Android asks.
 
 ## Sign in
 

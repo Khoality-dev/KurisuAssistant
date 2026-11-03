@@ -1,5 +1,5 @@
 /**
- * How full Kurisu Drive is, at the foot of the sources tree.
+ * How full Amadeus Drive is, at the foot of the sources tree.
  *
  * Storage on someone else's machine has a ceiling, and the moment to learn that
  * is before an upload is refused — so the bar sits next to the tree rather than
@@ -9,10 +9,10 @@
 import React, { useEffect, useState } from 'react';
 import { Box, LinearProgress, Tooltip, Typography } from '@mui/material';
 import { Cloud as CloudIcon } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
-import { DRIVE_ROOT_LABEL } from '@kurisu/api';
-import { useTransferStore } from '@kurisu/state';
-import type { DriveUsage } from '@kurisu/models';
+import { apiClient } from '@amadeus/api';
+import { DRIVE_ROOT_LABEL } from '@amadeus/api';
+import { useTransferStore } from '@amadeus/state';
+import type { DriveUsage } from '@amadeus/models';
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

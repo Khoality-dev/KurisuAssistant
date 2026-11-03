@@ -14,8 +14,8 @@
  * A "frame" here, for the conformance probe, is one update the adapter
  * forwarded while a pose was held; the compositor draws it on its own loop.
  */
-import type { CharacterDriver, DriverInput, DriverLoadDeps, ParsedCharacterConfig, PoseTree } from '@kurisu/models';
-import { config } from '@kurisu/api';
+import type { CharacterDriver, DriverInput, DriverLoadDeps, ParsedCharacterConfig, PoseTree } from '@amadeus/models';
+import { config } from '@amadeus/api';
 import { CanvasCompositor } from '../videocall/engine/CanvasCompositor';
 
 /** The backing store every 2D character is composited at; CSS scales it to the box. */

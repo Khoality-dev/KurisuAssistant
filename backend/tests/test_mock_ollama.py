@@ -9,7 +9,7 @@ import httpx
 import ollama
 import pytest
 
-from kurisuassistant.models.llm.ollama_provider import OllamaProvider
+from amadeus.models.llm.ollama_provider import OllamaProvider
 from tests.mock_ollama import (
     DEFAULT_MODEL,
     EMBED_DIMENSIONS,

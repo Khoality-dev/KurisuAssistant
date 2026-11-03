@@ -15,8 +15,8 @@ import uuid
 
 import pytest
 
-from kurisuassistant.tools import tool_registry
-from kurisuassistant.tools.calendar import (
+from amadeus.tools import tool_registry
+from amadeus.tools.calendar import (
     CalendarCreateTool,
     CalendarDeleteTool,
     CalendarListTool,
@@ -34,14 +34,14 @@ def accounts(system_client, monkeypatch):
 
     The zone is the account setting #352 brings; until then the calendar asks
     ``calendar/zone.zone_for``, which is what is pinned here."""
-    from kurisuassistant.core.accounts import provision_user
-    from kurisuassistant.core.security import hash_password
-    from kurisuassistant.db.repositories import UserRepository
-    from kurisuassistant.db.session import get_session
+    from amadeus.core.accounts import provision_user
+    from amadeus.core.security import hash_password
+    from amadeus.db.repositories import UserRepository
+    from amadeus.db.session import get_session
 
     from zoneinfo import ZoneInfo
 
-    from kurisuassistant.calendar import zone
+    from amadeus.calendar import zone
 
     ids = []
     for _ in range(2):

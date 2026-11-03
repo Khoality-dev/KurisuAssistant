@@ -1,7 +1,7 @@
 /**
  * The main flows against the real backend (#313): signing in, a streamed
  * reply, a first run with no model, personas, the assistant's settings and
- * Kurisu Drive. What the app shows is checked, and so is what the server then
+ * Amadeus Drive. What the app shows is checked, and so is what the server then
  * holds — read back through its API as the same account — and, for the chat,
  * what the server asked the model.
  */
@@ -123,7 +123,7 @@ test.describe('the desktop app against the real backend', () => {
     expect(await account.json('/assistant')).toMatchObject({ trigger_word: 'Christina', memory: 'Likes Dr Pepper.', model_name: MOCK_MODEL });
   });
 
-  test('Kurisu Drive: a folder made in the app, and a file edited in it, are on the server', async ({ page, account, ollama }) => {
+  test('Amadeus Drive: a folder made in the app, and a file edited in it, are on the server', async ({ page, account, ollama }) => {
     await setUp(account, ollama);
     const uploaded = await account.api('/drive/files?name=todo.md', { method: 'POST', body: 'buy milk', headers: { 'Content-Type': 'application/octet-stream' } });
     expect(uploaded.status, await uploaded.clone().text()).toBeLessThan(300);
@@ -131,7 +131,7 @@ test.describe('the desktop app against the real backend', () => {
 
     await signIn(page, account);
     await expect(composer(page)).toBeVisible({ timeout: 20_000 });
-    await page.getByRole('row', { name: /Kurisu Drive/ }).first().dblclick();
+    await page.getByRole('row', { name: /Amadeus Drive/ }).first().dblclick();
     await expect(page.getByRole('cell', { name: 'todo.md', exact: true })).toBeVisible({ timeout: 15_000 });
 
     await page.locator('button').filter({ has: page.locator('[data-testid="CreateNewFolderIcon"]') }).first().click();

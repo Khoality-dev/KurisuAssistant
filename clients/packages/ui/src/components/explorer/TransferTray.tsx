@@ -26,7 +26,7 @@ import {
   ErrorOutline as FailedIcon,
   CheckCircleOutline as DoneIcon,
 } from '@mui/icons-material';
-import { useTransferStore, type Transfer } from '@kurisu/state';
+import { useTransferStore, type Transfer } from '@amadeus/state';
 import { formatBytes } from './DriveQuotaBar';
 
 function statusLine(t: Transfer): string {
@@ -157,7 +157,7 @@ export const TransferTray: React.FC = () => {
             variant="body2"
             sx={{ px: 2, py: 3, textAlign: 'center', color: 'text.secondary', fontSize: '0.8rem' }}
           >
-            Nothing moving. Upload from the toolbar, or ask Kurisu to put something on the drive.
+            Nothing moving. Upload from the toolbar, or ask Amadeus to put something on the drive.
           </Typography>
         ) : (
           transfers.map((transfer) => <TransferRow key={transfer.id} transfer={transfer} />)

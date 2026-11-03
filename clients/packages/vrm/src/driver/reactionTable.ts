@@ -30,7 +30,7 @@
  * never "every frame"; and no re-evaluation in the same frame after a fire.
  * Pure: time and randomness come in as arguments.
  */
-import type { TransitionCondition, VrmReaction } from '@kurisu/models';
+import type { TransitionCondition, VrmReaction } from '@amadeus/models';
 
 export interface ReactionInputs {
   isThinking: boolean;

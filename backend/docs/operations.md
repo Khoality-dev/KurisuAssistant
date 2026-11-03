@@ -51,12 +51,12 @@ logged out.
 
 ```bash
 set -a; . ./.env; set +a
-OUT=/backup/kurisu-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
+OUT=/backup/amadeus-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
 git rev-parse HEAD > "$OUT/commit"
 docker compose stop api
 docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -tAc 'select version_num from alembic_version' > "$OUT/alembic_version"
-docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc > "$OUT/kurisu.dump"
+docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc > "$OUT/amadeus.dump"
 sudo tar -C . -czf "$OUT/data.tar.gz" data
 cp .env "$OUT/env"
 [ -d nginx/certs ] && sudo tar -C . -czf "$OUT/nginx-certs.tar.gz" nginx/certs
@@ -73,7 +73,7 @@ the dump holds each user's provider API keys in plain columns, and the
 environment file holds the database password.
 
 The speech profiles add nothing to this: the engines' volumes
-(`kurisuassistant_whisper-cache`, `kurisuassistant_gpt-sovits-weights`) hold
+(`amadeus_whisper-cache`, `amadeus_gpt-sovits-weights`) hold
 weights they download again on first use. A fine-tuned voice you put there
 yourself is the exception — keep your own copy.
 
@@ -103,7 +103,7 @@ key and every existing session dies.
 cd <deployment>/backend
 cp /backup/<stamp>/env .env && set -a && . ./.env && set +a
 docker compose down
-docker volume rm kurisuassistant_postgres-data
+docker volume rm amadeus_postgres-data
 sudo rm -rf data && sudo tar -C . -xzf /backup/<stamp>/data.tar.gz
 # If the drive was archived separately, unpack it now — before the API starts,
 # and from the same moment as the dump.
@@ -111,11 +111,11 @@ sudo rm -rf data && sudo tar -C . -xzf /backup/<stamp>/data.tar.gz
 docker compose up -d postgres
 until docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do sleep 2; done
 docker compose exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  --no-owner --clean --if-exists < /backup/<stamp>/kurisu.dump
+  --no-owner --clean --if-exists < /backup/<stamp>/amadeus.dump
 docker compose up -d --build api && docker compose logs -f api
 ```
 
-The volume is `kurisuassistant_postgres-data`, not `postgres-data`: the project
+The volume is `amadeus_postgres-data`, not `postgres-data`: the project
 name is pinned, so Compose prefixes it. Removing it is what lets `initdb` apply
 the credentials from the restored environment file.
 
@@ -132,11 +132,42 @@ logging in again.
 
 Back up first. Migrations run on container start and are forward-only.
 
+### First update from KurisuAssistant
+
+After checking out the renamed release, stop the old stack without deleting its
+volumes: `docker compose -p kurisuassistant down` (do not add `-v`). From the
+new checkout's `backend/` directory run:
+
 ```bash
-git fetch --tags && git checkout vX.Y.Z && KURISU_VERSION=$(git describe --tags) docker compose up -d --build
+./scripts/migrate_from_kurisu.sh
 ```
 
-`--build` is what ships the code; `up -d` alone reuses the old image. `KURISU_VERSION` is what the backend reports as its version (#291): without it the image reports `dev`, which both clients show as the backend's version and never count as a mismatch — so a forgotten stamp is visible, not alarming.
+The script copies every `kurisuassistant_*` named volume to its matching
+`amadeus_*` volume, never overwrites a target and never deletes a source. It
+then starts the Compose Postgres image temporarily on the copied volume, renames
+the `kurisu` role and database to the values from `POSTGRES_USER` and
+`POSTGRES_DB` (both default to `amadeus`), and sets the role's
+`POSTGRES_PASSWORD` (default `amadeus`). It reads those three as Compose does:
+from the environment, else from `backend/.env`, so a deployment with its own
+user, database or password keeps them. A deployment that already set its own
+user and database has nothing renamed. The copy includes the speech engines'
+model caches, so it can take a while and needs the disk space for a second copy.
+The `./data` bind mount stays where it is and needs no copy. For the development
+stack use explicit projects:
+
+```bash
+./scripts/migrate_from_kurisu.sh kurisuassistant-dev amadeus-dev
+```
+
+Start the new stack only after the script succeeds. Verify accounts, files and
+speech profiles before using the printed `docker volume rm ...` command to
+remove the old volumes.
+
+```bash
+git fetch --tags && git checkout vX.Y.Z && AMADEUS_VERSION=$(git describe --tags) docker compose up -d --build
+```
+
+`--build` is what ships the code; `up -d` alone reuses the old image. `AMADEUS_VERSION` is what the backend reports as its version (#291): without it the image reports `dev`, which both clients show as the backend's version and never count as a mismatch — so a forgotten stamp is visible, not alarming.
 
 A release tag `vX.Y.Z` is the backend's and both clients' at once (#256): the
 clients are built and published from it by CI; the backend is what you check
@@ -213,7 +244,7 @@ Ollama server is unreachable" in the model picker.
 
 Android gets notifications with the app closed through Firebase Cloud Messaging; the desktop needs none of this (it keeps a socket from the tray). Push is off until the server has a service account:
 
-- **One Firebase project for both ends.** The Android app is built with that project's `google-services.json` (the release workflow writes it from the `KURISU_GOOGLE_SERVICES_JSON` secret), and the server holds a service account of the **same** project. A token minted by one project's app is refused by another project's server; the server then drops it as invalid and that phone gets no push.
+- **One Firebase project for both ends.** The Android app is built with that project's `google-services.json` (the release workflow writes it from the `AMADEUS_GOOGLE_SERVICES_JSON` secret), and the server holds a service account of the **same** project. A token minted by one project's app is refused by another project's server; the server then drops it as invalid and that phone gets no push.
 - **The server's half:** in the Firebase console, Project settings → Service accounts → Generate new private key. Put the JSON under `data/` and set `FCM_SERVICE_ACCOUNT_FILE=/app/data/<file>`, then restart the API. The log says `Push to phones is on (Firebase project …)`. It holds a credential: keep it out of backups you share, and rotate it in the console if it leaks.
 - **Without it** the log says `Push to phones is off` once at startup, phones still get notifications while the app is open, and catch up on what is unread when it opens.
 - `notification_devices` holds each phone's token; one FCM reports as unregistered or invalid is deleted on the next push. A phone that turns notifications off or signs out removes its own.
@@ -222,7 +253,7 @@ Android gets notifications with the app closed through Firebase Cloud Messaging;
 
 | | Where | Loss means |
 | --- | --- | --- |
-| Accounts, conversations, memory, personas | volume `kurisuassistant_postgres-data` | everything textual |
+| Accounts, conversations, memory, personas | volume `amadeus_postgres-data` | everything textual |
 | Images, avatars, face photos, voices, character assets | `backend/data/` | the media those rows point at |
 | Drive files | `backend/data/drive/` | every file users stored, from every device |
 | Session signing key | `backend/data/jwt_secret.key` | every client signed out |

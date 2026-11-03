@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
 import { Box, Typography, Chip } from '@mui/material';
-import { config } from '@kurisu/api';
+import { config } from '@amadeus/api';
 
 export interface PoseGraphNodeData {
   label: string;

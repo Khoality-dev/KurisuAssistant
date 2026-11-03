@@ -4,7 +4,7 @@
 
 faster-whisper, inside a published **Whisper ASR webservice** container behind
 `--profile whisper` — not inside the API and not in an image this repository
-builds (#212). `routers/asr.py` goes through `kurisuassistant/speech/`, whose
+builds (#212). `routers/asr.py` goes through `amadeus/speech/`, whose
 `engines/whisper.py` knows that engine's dialect and whose `recognition.py`
 orchestrates: the clients record raw Int16 PCM, the engine wants a file, so
 `pcm_to_wav` puts a header on the samples and nothing is re-encoded.
@@ -65,7 +65,7 @@ Silero VAD (`@ricky0123/vad-web`) auto-detects speech end → sends PCM to `/asr
 Both clients keep the same two settings and send the result as `?model=`
 (#200): **fixed** — one model for everything, blank meaning the server default —
 or **routing** — `POST /asr/detect-language` first, then the per-language table
-(`kurisu_asr_model_map`) names the model; a language with no mapping, or a
+(`amadeus_asr_model_map`) names the model; a language with no mapping, or a
 failed detection, falls back to the server default rather than to the fixed
 model. Desktop: `micStore.ts`; Android: `CoreService.chooseAsrModel` over the
 pure `AsrModelSelection`. Android stored and showed these settings for months
@@ -79,14 +79,14 @@ without ever sending them.
 
 ## ASR Optimizations
 
-1. **Language hint** — cached in localStorage (`kurisu_asr_language`), auto-detected on first transcription, configurable in Settings. Skips faster-whisper language detection pass.
+1. **Language hint** — cached in localStorage (`amadeus_asr_language`), auto-detected on first transcription, configurable in Settings. Skips faster-whisper language detection pass.
 2. **Min duration filter** — audio < 0.5s (8000 samples at 16kHz) skipped client-side.
 
 ## Failures are shown
 
 A transcription that fails — the service down, a 502 from the API, a model that
 does not exist — is one sentence in the chat, the same toast (desktop) or banner
-(Android) a failed send gets: `describeSpeechFailure` in `@kurisu/api` and in
+(Android) a failed send gets: `describeSpeechFailure` in `@amadeus/api` and in
 `domain/tts/SpeechFailure.kt` pull the API's `detail` out of the response and
 otherwise name the kind of failure. Both clients used to log it and stay silent
 (#200).

@@ -36,8 +36,8 @@ import type {
   VrmReaction,
   VrmReactionPlay,
   VrmSettings,
-} from '@kurisu/models';
-import { VRM_EMOTIONS } from '@kurisu/models';
+} from '@amadeus/models';
+import { VRM_EMOTIONS } from '@amadeus/models';
 import { INITIAL_MOUTH, stepMouth, type MouthState } from './lipSync';
 import { createIdleState, stepIdle, type IdleFrame, type IdleState } from './idle';
 import {

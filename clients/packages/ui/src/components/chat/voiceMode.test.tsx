@@ -12,8 +12,8 @@
 import { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useInteractiveASR } from '@kurisu/hooks';
-import { useMicStore } from '@kurisu/state';
+import { useInteractiveASR } from '@amadeus/hooks';
+import { useMicStore } from '@amadeus/state';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 

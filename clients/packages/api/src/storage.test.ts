@@ -7,8 +7,8 @@
  * account access.
  */
 
-import { fakeCharacterWindow, installBridge } from '@kurisu/platform/testing';
-import type { CredentialsAPI } from '@kurisu/platform';
+import { fakeCharacterWindow, installBridge } from '@amadeus/platform/testing';
+import type { CredentialsAPI } from '@amadeus/platform';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { storage } from './storage';
 
@@ -56,6 +56,19 @@ beforeEach(async () => {
 });
 
 describe('token storage', () => {
+  it('migrates every Kurisu localStorage key once without overwriting Amadeus values', async () => {
+    localStorage.setItem('kurisu_backend_url', 'https://old.example');
+    localStorage.setItem('kurisu_voice_mode', 'true');
+    localStorage.setItem('amadeus_voice_mode', 'false');
+
+    await storage.loadPersistedTokens();
+
+    expect(localStorage.getItem('amadeus_backend_url')).toBe('https://old.example');
+    expect(localStorage.getItem('amadeus_voice_mode')).toBe('false');
+    expect(localStorage.getItem('kurisu_backend_url')).toBeNull();
+    expect(localStorage.getItem('kurisu_voice_mode')).toBeNull();
+  });
+
   it('keeps tokens out of localStorage entirely', async () => {
     storage.setRememberMe(true);
     storage.setToken(ACCESS);
@@ -68,8 +81,8 @@ describe('token storage', () => {
     const dumped = JSON.stringify(Object.entries(localStorage));
     expect(dumped).not.toContain(ACCESS);
     expect(dumped).not.toContain(REFRESH);
-    expect(localStorage.getItem('kurisu_auth_token')).toBeNull();
-    expect(localStorage.getItem('kurisu_refresh_token')).toBeNull();
+    expect(localStorage.getItem('amadeus_auth_token')).toBeNull();
+    expect(localStorage.getItem('amadeus_refresh_token')).toBeNull();
   });
 
   it('persists through the bridge when remember-me is on', async () => {
@@ -110,28 +123,28 @@ describe('token storage', () => {
 
   it('migrates a pair left in localStorage by an older build, then deletes it', async () => {
     const bridge = install(fakeBridge())!;
-    localStorage.setItem('kurisu_auth_token', ACCESS);
-    localStorage.setItem('kurisu_refresh_token', REFRESH);
-    localStorage.setItem('kurisu_remember_me', 'true');
+    localStorage.setItem('amadeus_auth_token', ACCESS);
+    localStorage.setItem('amadeus_refresh_token', REFRESH);
+    localStorage.setItem('amadeus_remember_me', 'true');
 
     await storage.loadPersistedTokens();
     await settle();
 
     expect(storage.getRefreshToken()).toBe(REFRESH);
     expect(bridge.held.refreshToken).toBe(REFRESH);
-    expect(localStorage.getItem('kurisu_auth_token')).toBeNull();
-    expect(localStorage.getItem('kurisu_refresh_token')).toBeNull();
+    expect(localStorage.getItem('amadeus_auth_token')).toBeNull();
+    expect(localStorage.getItem('amadeus_refresh_token')).toBeNull();
   });
 
   it('deletes the old plaintext pair even with no keychain to move it to', async () => {
     install(fakeBridge({ secure: false }))!;
-    localStorage.setItem('kurisu_auth_token', ACCESS);
-    localStorage.setItem('kurisu_refresh_token', REFRESH);
+    localStorage.setItem('amadeus_auth_token', ACCESS);
+    localStorage.setItem('amadeus_refresh_token', REFRESH);
 
     await storage.loadPersistedTokens();
 
-    expect(localStorage.getItem('kurisu_auth_token')).toBeNull();
-    expect(localStorage.getItem('kurisu_refresh_token')).toBeNull();
+    expect(localStorage.getItem('amadeus_auth_token')).toBeNull();
+    expect(localStorage.getItem('amadeus_refresh_token')).toBeNull();
     expect(storage.isTokenStorageSecure()).toBe(false);
   });
 
@@ -159,7 +172,7 @@ describe('token storage', () => {
 
     expect(storage.getToken()).toBe(ACCESS);
     expect(storage.isTokenStorageSecure()).toBe(false);
-    expect(localStorage.getItem('kurisu_auth_token')).toBeNull();
+    expect(localStorage.getItem('amadeus_auth_token')).toBeNull();
   });
 });
 

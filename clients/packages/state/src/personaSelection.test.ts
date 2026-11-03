@@ -9,12 +9,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const assistant = { selected_persona_id: 2 as number | null };
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   apiClient: {
     listPersonas: vi.fn(async () => [
       { id: 1, name: 'Kurisu', enabled: true },
-      { id: 2, name: 'Amadeus', enabled: true },
+      { id: 2, name: 'Kurisu', enabled: true },
     ]),
     getAssistant: vi.fn(async () => ({ ...assistant })),
     updateAssistant: vi.fn(async (update: { selected_persona_id: number | null }) => {
@@ -25,7 +25,7 @@ vi.mock('@kurisu/api', async (importOriginal) => ({
   },
 }));
 
-import { apiClient } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
 import * as personaStoreModule from './personaStore';
 import { usePersonaStore } from './personaStore';
 

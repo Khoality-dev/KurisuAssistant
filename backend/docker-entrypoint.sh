@@ -17,7 +17,7 @@ echo "Waiting for PostgreSQL at ${POSTGRES_HOST:-<unset>}:${POSTGRES_PORT:-<unse
 
 attempt=1
 while true; do
-  if error=$(python -c "from kurisuassistant.db.session import engine; engine.connect()" 2>&1); then
+  if error=$(python -c "from amadeus.db.session import engine; engine.connect()" 2>&1); then
     break
   fi
 
@@ -72,4 +72,4 @@ else
 fi
 
 echo "Starting application..."
-exec uvicorn kurisuassistant.main:app "${UVICORN_ARGS[@]}"
+exec uvicorn amadeus.main:app "${UVICORN_ARGS[@]}"

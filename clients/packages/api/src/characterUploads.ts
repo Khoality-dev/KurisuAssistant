@@ -10,7 +10,7 @@
 import {
   CHARACTER_UPLOAD_ERROR_CODES,
   type CharacterUploadErrorCode,
-} from '@kurisu/models';
+} from '@amadeus/models';
 
 export class CharacterUploadError extends Error {
   readonly code: CharacterUploadErrorCode | 'network' | 'unknown';

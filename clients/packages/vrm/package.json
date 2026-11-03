@@ -1,9 +1,9 @@
 {
-  "name": "@kurisu/vrm",
+  "name": "@amadeus/vrm",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The VRM character driver: three.js lives here and nowhere else. Depends on @kurisu/models only, so the same code drives the desktop, the browser build and the page an Android WebView hosts. `@kurisu/vrm/probe` is the engine-free entry a surface asks before it imports the rest.",
+  "description": "The VRM character driver: three.js lives here and nowhere else. Depends on @amadeus/models only, so the same code drives the desktop, the browser build and the page an Android WebView hosts. `@amadeus/vrm/probe` is the engine-free entry a surface asks before it imports the rest.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -17,7 +17,7 @@
     "build:page": "vite build -c vite.page.config.ts"
   },
   "dependencies": {
-    "@kurisu/models": "*",
+    "@amadeus/models": "*",
     "@pixiv/three-vrm": "3.5.5",
     "@pixiv/three-vrm-animation": "3.5.5",
     "three": "0.186.0"

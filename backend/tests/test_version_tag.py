@@ -2,7 +2,7 @@
 
 Pushing ``vX.Y.Z`` on ``main`` is the whole release: nothing in the tree holds
 the number. The backend learns its version from the image it runs in — the
-deployment stamps ``KURISU_VERSION`` from the checked-out tag when it builds —
+deployment stamps ``AMADEUS_VERSION`` from the checked-out tag when it builds —
 and anything that is not a plain release number says so, so a dev build is
 never mistaken for a release. The clients still take their version from the
 tag at build time, and ``release.yml`` asks ``version.release_tag_problem``
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from kurisuassistant import version
+from amadeus import version
 
 VERSION_PY = Path(version.__file__)
 BACKEND = VERSION_PY.parents[1]
@@ -45,11 +45,11 @@ def test_an_unstamped_build_says_dev(raw):
 
 
 def test_the_version_is_read_from_the_image_it_runs_in(monkeypatch):
-    monkeypatch.setenv("KURISU_VERSION", "v1.2.3")
+    monkeypatch.setenv("AMADEUS_VERSION", "v1.2.3")
     try:
         assert importlib.reload(version).__version__ == "1.2.3"
     finally:
-        monkeypatch.delenv("KURISU_VERSION")
+        monkeypatch.delenv("AMADEUS_VERSION")
         importlib.reload(version)
     assert version.__version__ == "dev"
 
@@ -81,7 +81,7 @@ def test_the_check_runs_as_a_script_the_workflow_can_call():
 
 def test_the_release_workflow_asks_the_check_and_reads_no_committed_number():
     workflow = RELEASE_YML.read_text()
-    assert "python3 backend/kurisuassistant/version.py" in workflow
+    assert "python3 backend/amadeus/version.py" in workflow
     assert "__version__" not in workflow
 
 
@@ -92,9 +92,9 @@ def test_the_release_workflow_refuses_a_tag_that_is_not_on_main():
 
 def test_the_image_is_stamped_with_the_version_it_is_built_from():
     dockerfile = (BACKEND / "Dockerfile").read_text()
-    assert re.search(r"^ARG KURISU_VERSION\b", dockerfile, re.M)
-    assert re.search(r"^ENV KURISU_VERSION=\$\{?KURISU_VERSION\}?\s*$", dockerfile, re.M)
+    assert re.search(r"^ARG AMADEUS_VERSION\b", dockerfile, re.M)
+    assert re.search(r"^ENV AMADEUS_VERSION=\$\{?AMADEUS_VERSION\}?\s*$", dockerfile, re.M)
     build = yaml.safe_load((BACKEND / "docker-compose.yml").read_text())["services"]["api"]["build"]
     args = build.get("args") or {}
     names = args.keys() if isinstance(args, dict) else [a.split("=", 1)[0] for a in args]
-    assert "KURISU_VERSION" in names
+    assert "AMADEUS_VERSION" in names

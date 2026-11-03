@@ -1,5 +1,5 @@
-import { installBridge, resetBridge } from '@kurisu/platform/testing';
-import type { ExplorerAPI } from '@kurisu/platform';
+import { installBridge, resetBridge } from '@amadeus/platform/testing';
+import type { ExplorerAPI } from '@amadeus/platform';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('./client', () => ({
@@ -122,7 +122,7 @@ describe('joining and splitting paths', () => {
 });
 
 describe('the root listing', () => {
-  it('puts Kurisu Drive beside this machine, composed in the renderer', async () => {
+  it('puts Amadeus Drive beside this machine, composed in the renderer', async () => {
     // `explorerIPC` enumerates this machine's own drives and cannot know a
     // server exists, so the drive has to be appended on this side.
     const explorer = stubElectron();
@@ -135,7 +135,7 @@ describe('the root listing', () => {
     const result = await fileSource.listDirectory('');
 
     expect(result.isRoot).toBe(true);
-    expect(result.entries.map((e) => e.name)).toEqual(['Home', 'Kurisu Drive']);
+    expect(result.entries.map((e) => e.name)).toEqual(['Home', 'Amadeus Drive']);
     expect(result.entries[1].fullPath).toBe(DRIVE_ROOT);
   });
 });

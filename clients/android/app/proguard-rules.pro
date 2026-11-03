@@ -3,9 +3,9 @@
 -dontnote kotlinx.serialization.AnnotationsKt
 -keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
 -keepclasseswithmembers class kotlinx.serialization.json.** { kotlinx.serialization.KSerializer serializer(...); }
--keep,includedescriptorclasses class com.kurisu.assistant.**$$serializer { *; }
--keepclassmembers class com.kurisu.assistant.** { *** Companion; }
--keepclasseswithmembers class com.kurisu.assistant.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep,includedescriptorclasses class com.amadeus.assistant.**$$serializer { *; }
+-keepclassmembers class com.amadeus.assistant.** { *** Companion; }
+-keepclasseswithmembers class com.amadeus.assistant.** { kotlinx.serialization.KSerializer serializer(...); }
 
 # ONNX Runtime
 -keep class ai.onnxruntime.** { *; }
@@ -18,7 +18,7 @@
 -keepattributes Signature
 -keepattributes Exceptions
 
-# The character page calls these by name through window.KurisuNative (#246)
+# The character page calls these by name through window.AmadeusNative (#246)
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }

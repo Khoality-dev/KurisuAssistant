@@ -1,4 +1,4 @@
-"""Kurisu Drive over the real app and a real database (#17).
+"""Amadeus Drive over the real app and a real database (#17).
 
 What is under test here is the *combination* the drive is made of: a row that
 owns a blob, an account that owns the row, and a serving route that must not
@@ -19,7 +19,7 @@ from tests.conftest import (
     _create_activated_user,
 )
 
-from kurisuassistant.version import WIRE_PROTOCOL
+from amadeus.version import WIRE_PROTOCOL
 
 pytestmark = pytest.mark.db
 
@@ -55,7 +55,7 @@ def intruder(system_client):
 @pytest.fixture(autouse=True)
 def drive_root(tmp_path, monkeypatch):
     """Keep every blob this suite writes inside pytest's temporary directory."""
-    from kurisuassistant.utils import drive_storage
+    from amadeus.utils import drive_storage
 
     monkeypatch.setattr(drive_storage, "DRIVE_DIR", tmp_path / "drive")
     return tmp_path / "drive"
@@ -142,7 +142,7 @@ class TestTheBodyIsNotReadBeforeTheCallerIs:
         """
         import inspect
 
-        from kurisuassistant.routers import drive as drive_router
+        from amadeus.routers import drive as drive_router
 
         signature = inspect.signature(drive_router.upload_file)
         annotations = [p.annotation for p in signature.parameters.values()]
@@ -508,7 +508,7 @@ class TestOwnership:
 
 class TestLimits:
     def test_a_file_over_the_ceiling_is_refused(self, system_client, owner, monkeypatch):
-        from kurisuassistant.utils import drive_storage
+        from amadeus.utils import drive_storage
 
         monkeypatch.setattr(drive_storage, "MAX_FILE_BYTES", 64)
         _, headers = owner
@@ -518,7 +518,7 @@ class TestLimits:
     def test_a_refused_upload_leaves_nothing_behind(
         self, system_client, owner, monkeypatch, drive_root
     ):
-        from kurisuassistant.utils import drive_storage
+        from amadeus.utils import drive_storage
 
         monkeypatch.setattr(drive_storage, "MAX_FILE_BYTES", 64)
         _, headers = owner
@@ -532,17 +532,17 @@ class TestLimits:
         the space, so the check that has to hold is the one inside the write
         transaction — which runs on the single database thread, and is
         therefore atomic against every other upload."""
-        from kurisuassistant.utils import drive_storage
+        from amadeus.utils import drive_storage
 
         _, headers = owner
         # Room at the start; none by the time the row is written.
         monkeypatch.setattr(drive_storage, "QUOTA_BYTES", 10_000)
         sizes = iter([0, 10_000])
         real_usage = __import__(
-            "kurisuassistant.db.repositories.drive", fromlist=["DriveNodeRepository"]
+            "amadeus.db.repositories.drive", fromlist=["DriveNodeRepository"]
         ).DriveNodeRepository.usage
         monkeypatch.setattr(
-            "kurisuassistant.db.repositories.drive.DriveNodeRepository.usage",
+            "amadeus.db.repositories.drive.DriveNodeRepository.usage",
             lambda self, user_id: (next(sizes, 10_000), 0),
         )
 
@@ -554,7 +554,7 @@ class TestLimits:
         assert real_usage  # referenced so the patch target is obviously the real one
 
     def test_a_full_drive_is_refused(self, system_client, owner, monkeypatch):
-        from kurisuassistant.utils import drive_storage
+        from amadeus.utils import drive_storage
 
         _, headers = owner
         assert _upload(
@@ -583,7 +583,7 @@ class TestEditorSave:
         """The editor's Save has the same race the upload does — the headroom is
         measured before the bytes arrive and nothing reserves it — so it needs
         the same check inside the write transaction."""
-        from kurisuassistant.utils import drive_storage
+        from amadeus.utils import drive_storage
 
         _, headers = owner
         node = _upload(system_client, headers, "growing.md", b"small").json()
@@ -591,7 +591,7 @@ class TestEditorSave:
         monkeypatch.setattr(drive_storage, "QUOTA_BYTES", 10_000)
         sizes = iter([0, 10_000])
         monkeypatch.setattr(
-            "kurisuassistant.db.repositories.drive.DriveNodeRepository.usage",
+            "amadeus.db.repositories.drive.DriveNodeRepository.usage",
             lambda self, user_id: (next(sizes, 10_000), 0),
         )
 

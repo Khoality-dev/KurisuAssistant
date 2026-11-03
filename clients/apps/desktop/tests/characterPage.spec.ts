@@ -60,7 +60,7 @@ async function servePage(): Promise<Served> {
 async function openPage(served: Served, flags: string[]): Promise<{ app: ElectronApplication; page: Page; cspViolations: string[] }> {
   const app = await electron.launch({
     args: [HOST_MAIN, ...(process.platform === 'linux' ? ['--no-sandbox'] : []), ...flags],
-    env: { ...process.env, KURISU_PAGE_URL: served.url },
+    env: { ...process.env, AMADEUS_PAGE_URL: served.url },
   });
   const page = await app.firstWindow();
   const cspViolations: string[] = [];
@@ -77,7 +77,7 @@ function fixture(name: string): any {
 }
 
 async function events(page: Page): Promise<Array<{ t: string; code?: string; message?: string }>> {
-  return page.evaluate(() => (window as any).__kurisu.events);
+  return page.evaluate(() => (window as any).__amadeus.events);
 }
 
 test.describe('the Android character page', () => {
@@ -105,8 +105,8 @@ test.describe('the Android character page', () => {
     config.character.vrm.model.bytes = VRM_MODEL_BYTES.length;
     config.character.vrm.clips = [];
     config.character.vrm.idle.idle_clip_ids = [];
-    // What `evaluateJavascript("window.__kurisu.push(<json>)")` does.
-    await page.evaluate((json) => (window as any).__kurisu.push(json), JSON.stringify(config));
+    // What `evaluateJavascript("window.__amadeus.push(<json>)")` does.
+    await page.evaluate((json) => (window as any).__amadeus.push(json), JSON.stringify(config));
 
     await expect(page.locator('html')).toHaveAttribute('data-status', /ready|failed/, { timeout: 30_000 });
     const modelRequests = served.requests.filter((r) => r.path === '/character-assets/1/vrm/model');
@@ -116,7 +116,7 @@ test.describe('the Android character page', () => {
 
     // The rest of the golden messages go through without an error.
     for (const name of ['speech', 'speech-sync', 'feed', 'gestures', 'faces', 'subtitle', 'resting', 'speech-null']) {
-      await page.evaluate((json) => (window as any).__kurisu.push(json), fs.readFileSync(path.join(FIXTURES, `${name}.json`), 'utf8'));
+      await page.evaluate((json) => (window as any).__amadeus.push(json), fs.readFileSync(path.join(FIXTURES, `${name}.json`), 'utf8'));
     }
     await expect(page.locator('#subtitle')).toHaveText('Hello there.');
     expect((await events(page)).filter((e) => e.t === 'error')).toEqual([]);
@@ -132,7 +132,7 @@ test.describe('the Android character page', () => {
     await page.evaluate(() => {
       const channel = new MessageChannel();
       (window as any).__hostPort = channel.port1;
-      window.postMessage('kurisu:port', '*', [channel.port2]);
+      window.postMessage('amadeus:port', '*', [channel.port2]);
     });
     await page.evaluate((json) => (window as any).__hostPort.postMessage(json), JSON.stringify({ t: 'config', character: null, personaName: null }));
     await expect(page.locator('html')).toHaveAttribute('data-status', 'no-model');

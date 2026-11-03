@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { apiClient, wsManager } from '@kurisu/api';
-import type { AssistantTask, TaskApproval, TaskStatus, TaskUpdate } from '@kurisu/models';
+import { apiClient, wsManager } from '@amadeus/api';
+import type { AssistantTask, TaskApproval, TaskStatus, TaskUpdate } from '@amadeus/models';
 
 /**
  * The Tasks screen (#352): work the assistant does on its own, now or on a

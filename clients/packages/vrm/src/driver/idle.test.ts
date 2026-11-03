@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { VrmIdleSettings } from '@kurisu/models';
+import type { VrmIdleSettings } from '@amadeus/models';
 import { createIdleState, MAX_IDLE_STEP_MS, stepIdle, type IdleState } from './idle';
 
 const SETTINGS: VrmIdleSettings = {

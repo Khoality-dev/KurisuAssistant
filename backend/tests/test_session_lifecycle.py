@@ -15,9 +15,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kurisuassistant.websocket.handlers import MAX_QUEUED_MESSAGES, ChatSessionHandler
-from kurisuassistant.websocket.events import ChatRequestEvent
-from kurisuassistant.websocket.manager import ConnectionManager, WS_SUPERSEDED_CODE
+from amadeus.websocket.handlers import MAX_QUEUED_MESSAGES, ChatSessionHandler
+from amadeus.websocket.events import ChatRequestEvent
+from amadeus.websocket.manager import ConnectionManager, WS_SUPERSEDED_CODE
 
 
 def make_ws():
@@ -67,7 +67,7 @@ class TestHandlerEviction:
         handler._vision_processor = MagicMock()
         handler._message_queue.append(MagicMock())
 
-        with patch("kurisuassistant.mcp_tools.orchestrator.evict_user_orchestrator") as evict:
+        with patch("amadeus.mcp_tools.orchestrator.evict_user_orchestrator") as evict:
             await handler.shutdown()
 
         assert handler._vision_processor is None

@@ -97,10 +97,10 @@ async function installBridge(page: Page, backendUrl: string) {
       hostTools: { listTools: async () => [], isHostTool: async () => false },
       onMCPToolsChanged: off,
     };
-    localStorage.setItem('kurisu_backend_url', url);
-    localStorage.setItem('kurisu_remember_me', 'false');
-    localStorage.removeItem('kurisu_auth_token');
-    localStorage.removeItem('kurisu_refresh_token');
+    localStorage.setItem('amadeus_backend_url', url);
+    localStorage.setItem('amadeus_remember_me', 'false');
+    localStorage.removeItem('amadeus_auth_token');
+    localStorage.removeItem('amadeus_refresh_token');
   }, backendUrl);
 }
 
@@ -117,7 +117,7 @@ const FIXTURE = {
       system_prompt:
         'You are Kurisu. Be precise and a little sharp. Never pad an answer to sound thorough.',
       preferred_name: 'Okabe',
-      voice_reference: 'kurisu-neutral.wav',
+      voice_reference: 'amadeus-neutral.wav',
       enabled: true,
     },
     {
@@ -222,7 +222,7 @@ test('capture desktop screenshots', async ({ browser }) => {
     await page.goto(site.url, { waitUntil: 'domcontentloaded' });
 
     // 1. Login — proves the bundle boots in a plain browser at all.
-    await expect(page.getByRole('heading', { name: 'KurisuAssistant' })).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'Amadeus' })).toBeVisible({
       timeout: 30_000,
     });
     await page.screenshot({ path: path.join(OUT, '01-login.png') });

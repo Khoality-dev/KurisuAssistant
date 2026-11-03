@@ -89,20 +89,20 @@ test.describe('personas', () => {
   });
 
   test('a persona is deleted after I confirm, and not before', async ({ page, mock }) => {
-    mock.addPersona({ name: 'Amadeus' });
+    mock.addPersona({ name: 'Mozart' });
     await login(page);
     await openSection(page, 'Personas');
 
-    const card = page.getByRole('group', { name: 'Amadeus' });
+    const card = page.getByRole('group', { name: 'Mozart' });
     await card.getByRole('button', { name: 'Delete' }).click();
-    const confirm = page.getByRole('dialog', { name: 'Delete Amadeus?' });
+    const confirm = page.getByRole('dialog', { name: 'Delete Mozart?' });
     await confirm.getByRole('button', { name: 'Cancel' }).click();
     await expect(confirm).toHaveCount(0);
-    expect(mock.getPersonas().map((p) => p.name)).toContain('Amadeus');
+    expect(mock.getPersonas().map((p) => p.name)).toContain('Mozart');
 
     await card.getByRole('button', { name: 'Delete' }).click();
-    await page.getByRole('dialog', { name: 'Delete Amadeus?' }).getByRole('button', { name: 'Delete persona' }).click();
-    await expect(page.getByRole('group', { name: 'Amadeus' })).toHaveCount(0);
+    await page.getByRole('dialog', { name: 'Delete Mozart?' }).getByRole('button', { name: 'Delete persona' }).click();
+    await expect(page.getByRole('group', { name: 'Mozart' })).toHaveCount(0);
     expect(mock.getPersonas().map((p) => p.name)).toEqual(['Kurisu']);
   });
 });

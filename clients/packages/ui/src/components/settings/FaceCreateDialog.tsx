@@ -14,8 +14,8 @@ import {
   CameraAlt as CameraAltIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
-import { useWebcamCapture, type CapturedPhoto } from '@kurisu/hooks';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
+import { useWebcamCapture, type CapturedPhoto } from '@amadeus/hooks';
 
 interface FaceCreateDialogProps {
   open: boolean;

@@ -27,10 +27,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kurisuassistant.character import assets, paths
-from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.routers import character, personas
-from kurisuassistant.utils import blob_stream, drive_storage
+from amadeus.character import assets, paths
+from amadeus.core.deps import get_authenticated_user
+from amadeus.routers import character, personas
+from amadeus.utils import blob_stream, drive_storage
 
 PERSONA = 1
 OTHER_PERSONA = 2

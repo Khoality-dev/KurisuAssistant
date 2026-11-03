@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CharacterStack } from './character/CharacterStack';
 import { SubtitleQueue, type SubtitleView } from './character/subtitleQueue';
 import { clearImageCache } from './videocall/engine/ImageCache';
-import { configureAuthedFetch, storage } from '@kurisu/api';
-import { resolveBridge } from '@kurisu/platform';
+import { configureAuthedFetch, storage } from '@amadeus/api';
+import { resolveBridge } from '@amadeus/platform';
 import {
   publishSpeech,
   publishSpeechSync,
@@ -13,7 +13,7 @@ import {
   setFaces,
   setThinking,
   useCharacterStore,
-} from '@kurisu/state';
+} from '@amadeus/state';
 
 /**
  * Where this window stands with the session (#237). It never logs in: the main

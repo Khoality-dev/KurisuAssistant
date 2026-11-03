@@ -7,7 +7,7 @@ notifications to every device of the account, with the app closed — see
 `websocket/events.py` is the source of truth for the shapes below; `parse_event()`
 there is the only thing that accepts a client event, and an unknown `type` raises.
 
-Wire protocol **8**. See `version.py` for the changelog.
+Wire protocol **11**. See `version.py` for the changelog.
 
 ## Handshake
 
@@ -17,11 +17,20 @@ WebSocket:
 
 | | Header | Subprotocol entry |
 |---|---|---|
-| Token | `Authorization: Bearer <token>` | `kurisu.auth.bearer, <token>` (first two entries) |
-| Protocol | `X-Wire-Protocol: 5` | `kurisu.wire.5` (any entry) |
+| Token | `Authorization: Bearer <token>` | `amadeus.auth.bearer, <token>` |
+| Protocol | `X-Wire-Protocol: 11` | `amadeus.wire.11` (any entry) |
 
-Only `kurisu.auth.bearer` is ever echoed back on accept; the browser drops the
-connection if the selected subprotocol is not echoed.
+During the independent client/server rollout, the backend also accepts
+`kurisu.auth.bearer` and `kurisu.wire.<N>`, and echoes the auth spelling the
+client offered, so an app from before the rename (#378) still connects. A
+renderer cannot offer both spellings at once: a server from before the rename
+reads only `kurisu.auth.bearer` in first place, and a browser refuses an offer
+that names the token twice. So new renderers offer the Amadeus triple, and when
+that is refused — `4001`, or a handshake that never opens — retry once with the
+Kurisu triple before treating the token as bad (`@amadeus/api`
+`socketProtocols.ts`). Android sends its token as a header and offers both
+`amadeus.wire.<N>` and `kurisu.wire.<N>`. The `kurisu.*` spellings exist only
+for compatibility and may be removed after the transition.
 
 The protocol check runs **before authentication**, so a stale client is told to
 update whether or not its token is still valid. A mismatch closes with **4426**
@@ -103,7 +112,7 @@ One per content chunk, thinking chunk and completed tool call.
   "persona_id": 3,
   "persona_name": "Kurisu",
   "name": "Kurisu",
-  "voice_reference": "kurisu_ref",
+  "voice_reference": "amadeus_ref",
   "conversation_id": 12,
   "tool_args": null,
   "tool_status": null,

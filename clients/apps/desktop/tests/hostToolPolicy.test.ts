@@ -29,7 +29,7 @@ let secret: string;
 beforeAll(() => {
   // realpath, so the comparisons below are not defeated by /tmp being a symlink
   // on macOS.
-  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-policy-')));
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-policy-')));
   project = path.join(root, 'project');
   secret = path.join(root, 'secret');
   fs.mkdirSync(path.join(project, 'src'), { recursive: true });

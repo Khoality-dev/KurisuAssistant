@@ -19,10 +19,10 @@ from pathlib import Path
 
 import pytest
 
-import kurisuassistant
-from kurisuassistant.websocket import handlers as handlers_module
+import amadeus
+from amadeus.websocket import handlers as handlers_module
 
-PACKAGE_ROOT = Path(inspect.getfile(kurisuassistant)).parent
+PACKAGE_ROOT = Path(inspect.getfile(amadeus)).parent
 ROUTERS = sorted((PACKAGE_ROOT / "routers").glob("*.py"))
 # The speech routers call out through this package, not themselves (#215).
 SPEECH = sorted((PACKAGE_ROOT / "speech").rglob("*.py"))
@@ -49,7 +49,7 @@ class TestNoSynchronousHttpInRouters:
     def test_router_does_not_import_requests(self, path):
         assert "requests" not in imported_names(parse(path)), (
             f"{path.name} imports the synchronous 'requests' library. Use "
-            "kurisuassistant.core.http.get_client() and await the call instead."
+            "amadeus.core.http.get_client() and await the call instead."
         )
 
     def test_speech_calls_go_through_the_shared_client(self):
@@ -68,7 +68,7 @@ class TestNoSynchronousHttpInRouters:
             for constructor in ("httpx.AsyncClient(", "httpx.Client("):
                 assert constructor not in source, (
                     f"speech/{path.name} builds its own {constructor[:-1]}; "
-                    "use kurisuassistant.core.http.get_client()"
+                    "use amadeus.core.http.get_client()"
                 )
 
     def test_speech_routers_do_not_reach_an_engine_themselves(self):
@@ -77,12 +77,12 @@ class TestNoSynchronousHttpInRouters:
         for name in ("asr.py", "tts.py"):
             source = (PACKAGE_ROOT / "routers" / name).read_text()
             assert "httpx" not in source and "get_client" not in source, (
-                f"{name} should not call out itself; go through kurisuassistant.speech"
+                f"{name} should not call out itself; go through amadeus.speech"
             )
         for name in ("asr.py", "tts.py"):
             source = (PACKAGE_ROOT / "routers" / name).read_text()
             assert "httpx" not in source and "get_client" not in source, (
-                f"{name} should not call out itself; go through kurisuassistant.speech"
+                f"{name} should not call out itself; go through amadeus.speech"
             )
 
     def test_speech_route_handlers_are_async(self):
@@ -141,9 +141,9 @@ class TestSkillLookupIsAwaited:
     """Building the system prompt happens inside the streaming coroutine."""
 
     def test_get_skill_names_is_a_coroutine(self):
-        from kurisuassistant.tools.skills import get_skill_names_for_user
+        from amadeus.tools.skills import get_skill_names_for_user
         assert inspect.iscoroutinefunction(get_skill_names_for_user)
 
     def test_prepare_messages_is_a_coroutine(self):
-        from kurisuassistant.agents.main import MainAgent
+        from amadeus.agents.main import MainAgent
         assert inspect.iscoroutinefunction(MainAgent._prepare_messages)

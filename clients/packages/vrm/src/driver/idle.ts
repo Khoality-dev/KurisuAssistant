@@ -12,7 +12,7 @@
  * a non-finite one is a zero step) so a tab that was hidden for a minute does
  * not fling the spring bones on return.
  */
-import type { BlinkTiming, VrmIdleSettings } from '@kurisu/models';
+import type { BlinkTiming, VrmIdleSettings } from '@amadeus/models';
 
 export type BlinkPhase = 'open' | 'closing' | 'held' | 'opening';
 

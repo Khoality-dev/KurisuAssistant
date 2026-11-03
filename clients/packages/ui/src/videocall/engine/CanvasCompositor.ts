@@ -7,9 +7,9 @@ import {
   type PoseConfig,
   type PoseTree,
   type ProcessedPose,
-} from '@kurisu/models';
+} from '@amadeus/models';
 import { getCachedImage } from './ImageCache';
-import { fetchAuthedBlob } from '@kurisu/api';
+import { fetchAuthedBlob } from '@amadeus/api';
 
 type BlinkState = 'open' | 'closing' | 'closed' | 'opening';
 type CompositorState = 'idle' | 'transitioning';

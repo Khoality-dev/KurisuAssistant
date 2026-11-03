@@ -19,7 +19,7 @@
  */
 import * as THREE from 'three';
 import type { VRM } from '@pixiv/three-vrm';
-import type { VrmClipRef } from '@kurisu/models';
+import type { VrmClipRef } from '@amadeus/models';
 import { LOOK_AT_PROXY_NAME } from './loader';
 
 export interface LoadedClip {

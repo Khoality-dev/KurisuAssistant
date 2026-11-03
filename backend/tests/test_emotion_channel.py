@@ -16,10 +16,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kurisuassistant.agents.base import AssistantConfig, PersonaConfig, AgentContext
-from kurisuassistant.agents.main import MainAgent
-from kurisuassistant.tools import ToolRegistry
-from kurisuassistant.websocket.events import StreamChunkEvent
+from amadeus.agents.base import AssistantConfig, PersonaConfig, AgentContext
+from amadeus.agents.main import MainAgent
+from amadeus.tools import ToolRegistry
+from amadeus.websocket.events import StreamChunkEvent
 
 
 VRM_ON = {"kind": "vrm", "vrm": {"emotion": {"enabled": True}}}
@@ -77,7 +77,7 @@ class FakeProvider:
 async def run_turns(turns, character_config=VRM_ON):
     provider = FakeProvider(turns)
     a = agent(character_config)
-    with patch("kurisuassistant.models.llm.create_llm_provider", return_value=provider), \
+    with patch("amadeus.models.llm.create_llm_provider", return_value=provider), \
          patch.object(MainAgent, "execute_tool", new_callable=AsyncMock) as mock_exec:
         mock_exec.return_value = MagicMock(content="42", status="success", images=[])
         events = [c async for c in a.process([{"role": "user", "content": "hi"}], context())]
@@ -152,7 +152,7 @@ class TestTheAgentLoop:
         line here once turned a whole turn into an error event.)"""
         import logging
 
-        with caplog.at_level(logging.INFO, logger="kurisuassistant.agents.main"):
+        with caplog.at_level(logging.INFO, logger="amadeus.agents.main"):
             await run_turns([[FakeChunk(FakeMessage("[[emotion:happy]]a [[emotion:nope]]b"))]])
         assert "1 known, 1 unknown" in caplog.text
 
@@ -183,7 +183,7 @@ class FakeAgent:
 
 
 async def stream_and_save(events):
-    from kurisuassistant.websocket.handlers import ChatSessionHandler
+    from amadeus.websocket.handlers import ChatSessionHandler
 
     handler = ChatSessionHandler(MagicMock(), user_id=1)
     saved = []
@@ -237,7 +237,7 @@ class TestPersisted:
     @pytest.fixture()
     def headers(self, system_client):
         from tests.conftest import SYSTEM_TEST_PASSWORD, SYSTEM_TEST_USER
-        from kurisuassistant.version import WIRE_PROTOCOL
+        from amadeus.version import WIRE_PROTOCOL
 
         resp = system_client.post("/login", data={"username": SYSTEM_TEST_USER, "password": SYSTEM_TEST_PASSWORD})
         assert resp.status_code == 200, resp.text

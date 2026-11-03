@@ -8,7 +8,7 @@ is what picks the engine for a request that names none.
 
 The API has no synthesis code of its own and never loads a model. It does the
 orchestration (#212): `routers/tts.py` resolves the voice reference, and
-`kurisuassistant/speech/` drives an engine — `engines/` for the adapters and
+`amadeus/speech/` drives an engine — `engines/` for the adapters and
 how their answers become the client's, `synthesis.py` for one synthesis.
 
 Every synthesis engine speaks one contract — `docs/speech-engine-contract.md`:

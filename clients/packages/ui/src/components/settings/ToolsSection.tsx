@@ -32,17 +32,17 @@ import {
   ChevronRight as ChevronIcon,
   Search as SearchIcon,
 } from '@mui/icons-material';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
 import {
   PLAYWRIGHT_MCP_ARGS,
   PLAYWRIGHT_MCP_PACKAGE,
   type MCPServer,
   type MCPServerTestResult,
   type Tool,
-} from '@kurisu/models';
-import { refreshClientMCPServers, getClientTools, getClientToolsByServer, useLayoutStore } from '@kurisu/state';
+} from '@amadeus/models';
+import { refreshClientMCPServers, getClientTools, getClientToolsByServer, useLayoutStore } from '@amadeus/state';
 import { buildToolCatalog, matchesQuery, type CatalogGroup, type CatalogTool } from './toolCatalog';
-import { requireAppTools, requireExtensions, requireHostTools, requireMcp, resolveBridge } from '@kurisu/platform';
+import { requireAppTools, requireExtensions, requireHostTools, requireMcp, resolveBridge } from '@amadeus/platform';
 
 // --- Local server detection ---
 
@@ -386,7 +386,7 @@ export const ToolsSection: React.FC = () => {
 
   const localMcpUrls = new Set(LOCAL_SERVERS.filter(s => s.mcpUrl).flatMap((s) => [s.mcpUrl!, s.mcpUrl!.replace('://127.0.0.1:', '://localhost:')]));
   const userServers = mcpServers.filter((s) => !s.url || !localMcpUrls.has(s.url));
-  const toolCount = catalog.kurisu.concat(catalog.desktop).reduce((n, g) => n + g.tools.length, 0)
+  const toolCount = catalog.amadeus.concat(catalog.desktop).reduce((n, g) => n + g.tools.length, 0)
     + Object.values(catalog.mcp).reduce((n, t) => n + t.length, 0);
   const searching = query.trim().length > 0;
   const lendsTools = !!(resolveBridge().hostTools || resolveBridge().appTools || resolveBridge().mcp);
@@ -535,9 +535,9 @@ export const ToolsSection: React.FC = () => {
         <Typography variant="body2" color="error">{error}</Typography>
       )}
 
-      {section('Kurisu', 'on the server, from every device',
+      {section('Amadeus', 'on the server, from every device',
         'The assistant’s own features. Always there, wherever you talk to it.',
-        catalog.kurisu.map((g: CatalogGroup) => groupRow(`kurisu:${g.id}`, g.name, g.tools)),
+        catalog.amadeus.map((g: CatalogGroup) => groupRow(`amadeus:${g.id}`, g.name, g.tools)),
       )}
 
       {lendsTools && section('This desktop', 'lent while this desktop is connected',

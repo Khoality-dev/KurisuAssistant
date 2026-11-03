@@ -41,7 +41,7 @@ const commands: Command[] = [
     name: 'resume',
     description: 'Pick a previous conversation to resume',
     execute: () => {
-      window.dispatchEvent(new Event('kurisu:open-resume-picker'));
+      window.dispatchEvent(new Event('amadeus:open-resume-picker'));
       return '';
     },
   },
@@ -52,7 +52,7 @@ const commands: Command[] = [
       if (!ctx.activeConversationId) {
         return 'No active conversation';
       }
-      window.dispatchEvent(new Event('kurisu:open-context-breakdown'));
+      window.dispatchEvent(new Event('amadeus:open-context-breakdown'));
       return '';
     },
   },
@@ -60,7 +60,7 @@ const commands: Command[] = [
     name: 'persona',
     description: 'Switch the persona in use, for every conversation',
     execute: () => {
-      window.dispatchEvent(new Event('kurisu:open-persona-picker'));
+      window.dispatchEvent(new Event('amadeus:open-persona-picker'));
       return '';
     },
   },
@@ -71,7 +71,7 @@ const commands: Command[] = [
       if (!ctx.activeConversationId) {
         return 'No active conversation';
       }
-      window.dispatchEvent(new Event('kurisu:refresh-conversation'));
+      window.dispatchEvent(new Event('amadeus:refresh-conversation'));
       return 'Reloading…';
     },
   },
@@ -82,7 +82,7 @@ const commands: Command[] = [
       // The inline panel is a character surface on every host (#241), so
       // there is always something to toggle; the pop-out is the panel's own
       // button, where the host has a window to pop out into.
-      window.dispatchEvent(new Event('kurisu:toggle-character'));
+      window.dispatchEvent(new Event('amadeus:toggle-character'));
       return '';
     },
   },
@@ -90,7 +90,7 @@ const commands: Command[] = [
     name: 'vision',
     description: 'Toggle the webcam vision pipeline on/off',
     execute: () => {
-      window.dispatchEvent(new Event('kurisu:toggle-vision'));
+      window.dispatchEvent(new Event('amadeus:toggle-vision'));
       return '';
     },
   },
@@ -101,7 +101,7 @@ const commands: Command[] = [
       if (!ctx.activeConversationId) {
         return 'No active conversation';
       }
-      const { wsManager } = await import('@kurisu/api');
+      const { wsManager } = await import('@amadeus/api');
       wsManager.send({ type: 'compact_context', conversation_id: ctx.activeConversationId });
       return 'Compacting context…';
     },

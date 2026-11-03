@@ -6,9 +6,9 @@ import {
   useConversationStore,
   useCharacterStore,
   useLayoutStore,
-} from '@kurisu/state';
-import { useCapabilities, useCharacterBridgeSync } from '@kurisu/hooks';
-import { resolveBridge } from '@kurisu/platform';
+} from '@amadeus/state';
+import { useCapabilities, useCharacterBridgeSync } from '@amadeus/hooks';
+import { resolveBridge } from '@amadeus/platform';
 import { ChatWidget } from '../chat/ChatWidget';
 import { CharacterPanel } from '../../character/CharacterPanel';
 import { ResizeHandle } from './ResizeHandle';
@@ -32,8 +32,8 @@ export const ChatPanel: React.FC = () => {
       const id = useConversationStore.getState().currentConversation?.id;
       if (id) useConversationStore.getState().loadConversation(id);
     };
-    window.addEventListener('kurisu:refresh-conversation', handler);
-    return () => window.removeEventListener('kurisu:refresh-conversation', handler);
+    window.addEventListener('amadeus:refresh-conversation', handler);
+    return () => window.removeEventListener('amadeus:refresh-conversation', handler);
   }, []);
 
   // The inline panel draws only while the character is not in its own window:
@@ -61,9 +61,9 @@ export const ChatPanel: React.FC = () => {
         layout.setCharacterVisible(true);
       }
     };
-    window.addEventListener('kurisu:toggle-character', toggle);
+    window.addEventListener('amadeus:toggle-character', toggle);
     if (!hasCharacterWindow || !api) {
-      return () => window.removeEventListener('kurisu:toggle-character', toggle);
+      return () => window.removeEventListener('amadeus:toggle-character', toggle);
     }
     const offClosed = api.onWindowClosed(() => useCharacterStore.getState().setWindowOpen(false));
     const offReady = api.onCharacterReady(() => {
@@ -71,7 +71,7 @@ export const ChatPanel: React.FC = () => {
       useLayoutStore.getState().setCharacterVisible(true);
     });
     return () => {
-      window.removeEventListener('kurisu:toggle-character', toggle);
+      window.removeEventListener('amadeus:toggle-character', toggle);
       offClosed();
       offReady();
       useCharacterStore.getState().setWindowOpen(false);
@@ -96,7 +96,7 @@ export const ChatPanel: React.FC = () => {
       .catch((error) => console.error('Failed to close the character window:', error))
       .finally(() => useCharacterStore.getState().setWindowOpen(false));
   };
-  const hide = () => window.dispatchEvent(new Event('kurisu:toggle-character'));
+  const hide = () => window.dispatchEvent(new Event('amadeus:toggle-character'));
 
   return (
     <Box

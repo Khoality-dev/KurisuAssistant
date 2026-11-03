@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { VrmReaction } from '@kurisu/models';
+import type { VrmReaction } from '@amadeus/models';
 import { createReactionTimers, DEFAULT_COOLDOWN_MS, matchReactions, type ReactionInputs, type ReactionTimers } from './reactionTable';
 
 const QUIET: ReactionInputs = { isThinking: false, gestures: [], faces: [] };

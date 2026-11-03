@@ -1,16 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   apiClient: {
     deleteConversation: vi.fn(async (_id: number) => {}),
     getConversation: vi.fn(),
   },
 }));
 
-import { apiClient } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
 import { useConversationStore } from './conversationStore';
-import type { Message, ConversationDetail } from '@kurisu/models';
+import type { Message, ConversationDetail } from '@amadeus/models';
 
 describe('conversationStore.deleteConversation', () => {
   beforeEach(() => {

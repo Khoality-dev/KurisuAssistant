@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { installBridge, resetBridge } from '@kurisu/platform/testing';
+import { installBridge, resetBridge } from '@amadeus/platform/testing';
 import { handleCommand, getCommands } from './commands';
 
 // ---------------------------------------------------------------------------
@@ -23,11 +23,11 @@ vi.mock('./conversationStore', () => {
   };
 });
 
-// Storage, the REST client and the socket all live in @kurisu/api now, and
+// Storage, the REST client and the socket all live in @amadeus/api now, and
 // `commands.ts` imports them from its barrel. Replacing the whole barrel would
 // blank every other export it has, so the original is spread back in first.
-vi.mock('@kurisu/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@kurisu/api')>()),
+vi.mock('@amadeus/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@amadeus/api')>()),
   apiClient: {},
   wsManager: {
     send: vi.fn(),
@@ -109,7 +109,7 @@ describe('slash commands', () => {
       expect(result).toBe('');
       expect(spy).toHaveBeenCalled();
       const evt = spy.mock.calls[0][0] as Event;
-      expect(evt.type).toBe('kurisu:open-resume-picker');
+      expect(evt.type).toBe('amadeus:open-resume-picker');
     });
 
   });
@@ -118,7 +118,7 @@ describe('slash commands', () => {
     it('dispatches the breakdown event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
       await handleCommand('/context', { activeConversationId: 1 });
-      expect(spy.mock.calls[0][0].type).toBe('kurisu:open-context-breakdown');
+      expect(spy.mock.calls[0][0].type).toBe('amadeus:open-context-breakdown');
     });
 
     it('refuses when no active conversation', async () => {
@@ -133,7 +133,7 @@ describe('slash commands', () => {
     it('dispatches the persona-picker event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
       await handleCommand('/persona', { activeConversationId: null });
-      expect(spy.mock.calls[0][0].type).toBe('kurisu:open-persona-picker');
+      expect(spy.mock.calls[0][0].type).toBe('amadeus:open-persona-picker');
     });
   });
 
@@ -141,7 +141,7 @@ describe('slash commands', () => {
     it('dispatches the refresh event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
       await handleCommand('/refresh', { activeConversationId: 1 });
-      expect(spy.mock.calls[0][0].type).toBe('kurisu:refresh-conversation');
+      expect(spy.mock.calls[0][0].type).toBe('amadeus:refresh-conversation');
     });
 
     it('refuses when no active conversation', async () => {
@@ -162,7 +162,7 @@ describe('slash commands', () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
       const result = await handleCommand('/live-animate', { activeConversationId: null });
       expect(result).toBe('');
-      expect(spy.mock.calls[0][0].type).toBe('kurisu:toggle-character');
+      expect(spy.mock.calls[0][0].type).toBe('amadeus:toggle-character');
     });
   });
 
@@ -170,20 +170,20 @@ describe('slash commands', () => {
     it('dispatches the toggle-vision event', async () => {
       const spy = vi.spyOn(window, 'dispatchEvent');
       await handleCommand('/vision', { activeConversationId: null });
-      expect(spy.mock.calls[0][0].type).toBe('kurisu:toggle-vision');
+      expect(spy.mock.calls[0][0].type).toBe('amadeus:toggle-vision');
     });
   });
 
   describe('/compact', () => {
     it('sends compact_context over the WebSocket', async () => {
-      const { wsManager } = await import('@kurisu/api');
+      const { wsManager } = await import('@amadeus/api');
       const result = await handleCommand('/compact', { activeConversationId: 42 });
       expect(result).toBe('Compacting context…');
       expect(wsManager.send).toHaveBeenCalledWith({ type: 'compact_context', conversation_id: 42 });
     });
 
     it('refuses when no active conversation', async () => {
-      const { wsManager } = await import('@kurisu/api');
+      const { wsManager } = await import('@amadeus/api');
       const result = await handleCommand('/compact', { activeConversationId: null });
       expect(result).toBe('No active conversation');
       expect(wsManager.send).not.toHaveBeenCalled();

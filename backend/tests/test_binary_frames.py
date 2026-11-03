@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import WebSocketDisconnect
 
-from kurisuassistant.websocket.binary import (
+from amadeus.websocket.binary import (
     BINARY_PROTOCOL_VERSION,
     HEADER_PREFIX_BYTES,
     MAX_HEADER_BYTES,
@@ -23,8 +23,8 @@ from kurisuassistant.websocket.binary import (
     encode_binary_message,
     parse_binary_message,
 )
-from kurisuassistant.websocket.events import VisionFrameEvent, parse_event
-from kurisuassistant.websocket.handlers import ChatSessionHandler
+from amadeus.websocket.events import VisionFrameEvent, parse_event
+from amadeus.websocket.handlers import ChatSessionHandler
 
 JPEG = b"\xff\xd8\xff\xe0not-really-a-jpeg\xff\xd9"
 
@@ -175,7 +175,7 @@ class TestTheProcessorTakesBytes:
         """No base64 step: the bytes off the wire go straight to cv2."""
         import inspect
 
-        from kurisuassistant.vision.processor import VisionProcessor
+        from amadeus.vision.processor import VisionProcessor
 
         source = inspect.getsource(VisionProcessor.process_frame)
         assert "b64decode" not in source

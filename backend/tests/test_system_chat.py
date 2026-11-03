@@ -13,7 +13,7 @@ import pytest
 
 from tests.conftest import SYSTEM_TEST_PASSWORD, SYSTEM_TEST_USER, _create_activated_user, _set_ollama_url
 
-from kurisuassistant.version import WIRE_PROTOCOL
+from amadeus.version import WIRE_PROTOCOL
 from tests.mock_ollama import DEFAULT_MODEL, Reply, ToolCall
 
 pytestmark = pytest.mark.db
@@ -397,15 +397,15 @@ class TestThePersonaInUse:
     def test_switching_applies_to_a_conversation_already_under_way(self, system_client, mock_ollama):
         headers = self.account(system_client, mock_ollama, "in-use-switch")
         kurisu = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
-        amadeus = system_client.post("/personas", json={"name": "Amadeus"}, headers=headers).json()
+        mozart = system_client.post("/personas", json={"name": "Mozart"}, headers=headers).json()
 
         self.select(system_client, headers, kurisu["id"])
         conversation_id, chunks = self.turn(system_client, headers, "first")
         assert {c["name"] for c in chunks} == {"Kurisu"}
 
-        self.select(system_client, headers, amadeus["id"])
+        self.select(system_client, headers, mozart["id"])
         _, chunks = self.turn(system_client, headers, "second", conversation_id=conversation_id)
-        assert {c["persona_id"] for c in chunks} == {amadeus["id"]}, "the old conversation continues as the persona in use now"
+        assert {c["persona_id"] for c in chunks} == {mozart["id"]}, "the old conversation continues as the persona in use now"
 
         self.select(system_client, headers, None)
         _, chunks = self.turn(system_client, headers, "third", conversation_id=conversation_id)
@@ -414,10 +414,10 @@ class TestThePersonaInUse:
     def test_a_chat_request_cannot_name_a_persona(self, system_client, mock_ollama):
         headers = self.account(system_client, mock_ollama, "in-use-request")
         kurisu = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
-        amadeus = system_client.post("/personas", json={"name": "Amadeus"}, headers=headers).json()
+        mozart = system_client.post("/personas", json={"name": "Mozart"}, headers=headers).json()
         self.select(system_client, headers, kurisu["id"])
 
-        _, chunks = self.turn(system_client, headers, "as Amadeus?", persona_id=amadeus["id"])
+        _, chunks = self.turn(system_client, headers, "as Mozart?", persona_id=mozart["id"])
 
         assert {c["persona_id"] for c in chunks} == {kurisu["id"]}
         assert system_client.get("/assistant", headers=headers).json()["selected_persona_id"] == kurisu["id"]
@@ -463,7 +463,7 @@ class TestThePersonaInUse:
     def test_disabling_or_deleting_the_selected_persona_returns_the_chat_to_the_assistant(self, system_client, mock_ollama):
         headers = self.account(system_client, mock_ollama, "selection-gone")
         first = system_client.post("/personas", json={"name": "Kurisu"}, headers=headers).json()
-        second = system_client.post("/personas", json={"name": "Amadeus"}, headers=headers).json()
+        second = system_client.post("/personas", json={"name": "Mozart"}, headers=headers).json()
 
         self.select(system_client, headers, first["id"])
         system_client.patch(f"/personas/{first['id']}/enabled", json={"enabled": False}, headers=headers)

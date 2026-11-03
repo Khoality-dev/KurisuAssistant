@@ -11,7 +11,7 @@
  * not only that it did not throw: a driver whose `load` resolves and whose
  * `update` draws nothing fails here, as it should.
  */
-import type { CharacterDriver, DriverInput, ParsedCharacterConfig } from '@kurisu/models';
+import type { CharacterDriver, DriverInput, ParsedCharacterConfig } from '@amadeus/models';
 
 /** What a case may ask a driver about itself. */
 export interface DriverProbe {

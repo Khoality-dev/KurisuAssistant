@@ -1,4 +1,4 @@
-import type { Tool } from '@kurisu/models';
+import type { Tool } from '@amadeus/models';
 
 /**
  * What Settings › Tools lists (#360): every tool the assistant has, by where it
@@ -24,7 +24,7 @@ export interface CatalogGroup {
 
 export interface ToolCatalog {
   /** The server's own tools, by feature: available from every device. */
-  kurisu: CatalogGroup[];
+  amadeus: CatalogGroup[];
   /** What this desktop lends while it is connected: host, app, local MCP servers. */
   desktop: CatalogGroup[];
   /** The user's server-side MCP servers' tools, by server name. */
@@ -40,10 +40,10 @@ export interface ToolCatalogInput {
   clientToolsByServer: Record<string, Tool[]>;
 }
 
-const KURISU_GROUPS: { id: string; name: string; matches: (name: string) => boolean }[] = [
+const AMADEUS_GROUPS: { id: string; name: string; matches: (name: string) => boolean }[] = [
   { id: 'calendar', name: 'Calendar', matches: (n) => n.startsWith('calendar_') },
   { id: 'tasks', name: 'Tasks', matches: (n) => n.startsWith('task_') },
-  { id: 'drive', name: 'Kurisu Drive', matches: (n) => n.startsWith('drive_') },
+  { id: 'drive', name: 'Amadeus Drive', matches: (n) => n.startsWith('drive_') },
   { id: 'memory', name: 'History and recall', matches: (n) => n.startsWith('history_') || n.startsWith('recall_') },
 ];
 
@@ -55,11 +55,11 @@ const toCatalogTool = (tool: Tool): CatalogTool => ({
 });
 
 export function buildToolCatalog(input: ToolCatalogInput): ToolCatalog {
-  const kurisu: CatalogGroup[] = KURISU_GROUPS.map((g) => ({ id: g.id, name: g.name, tools: [] as CatalogTool[] }));
+  const amadeus: CatalogGroup[] = AMADEUS_GROUPS.map((g) => ({ id: g.id, name: g.name, tools: [] as CatalogTool[] }));
   const other: CatalogGroup = { id: 'other', name: 'Other', tools: [] };
   for (const tool of input.serverTools) {
-    const at = KURISU_GROUPS.findIndex((g) => g.matches(tool.function.name));
-    (at === -1 ? other : kurisu[at]).tools.push(toCatalogTool(tool));
+    const at = AMADEUS_GROUPS.findIndex((g) => g.matches(tool.function.name));
+    (at === -1 ? other : amadeus[at]).tools.push(toCatalogTool(tool));
   }
 
   const host: CatalogGroup = { id: 'host', name: 'Files and commands', tools: [] };
@@ -78,7 +78,7 @@ export function buildToolCatalog(input: ToolCatalogInput): ToolCatalog {
 
   const nonEmpty = (groups: CatalogGroup[]) => groups.filter((g) => g.tools.length > 0);
   return {
-    kurisu: nonEmpty([...kurisu, other]),
+    amadeus: nonEmpty([...amadeus, other]),
     desktop: [...nonEmpty([host, app]), ...localServers.filter((g) => g.tools.length > 0)],
     mcp,
   };

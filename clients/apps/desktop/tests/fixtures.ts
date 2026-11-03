@@ -101,7 +101,7 @@ export async function shutDown(app: ElectronApplication): Promise<void> {
  * test — prevents state bleed and the single-instance lock from blocking runs.
  */
 export async function createAppPaths(): Promise<AppPaths> {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-e2e-'));
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-e2e-'));
   return {
     userDataDir,
     mcpPort: await freePort(),
@@ -129,26 +129,26 @@ export async function launchApp(backendUrl: string, appPaths: AppPaths, electron
     // The shipped app is not launched this way.
     //
     // `electronArgs` is a spec file's own flags (`vrm.spec.ts` asks for
-    // SwiftShader, #306); `KURISU_E2E_ELECTRON_ARGS` adds a developer's for
+    // SwiftShader, #306); `AMADEUS_E2E_ELECTRON_ARGS` adds a developer's for
     // the manual GPU spec (`vrmRender.gpu.spec.ts`, #240). Both empty, as
     // for every other spec on CI, the app launches as it ships.
     args: [
       ...(process.platform === 'linux' ? [MAIN_ENTRY, '--no-sandbox'] : [MAIN_ENTRY]),
       ...electronArgs,
-      ...(process.env.KURISU_E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean),
+      ...(process.env.AMADEUS_E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean),
     ],
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,
       // Ensure the test Electron instance uses an isolated userData dir so the
       // single-instance lock from a real running install doesn't block us.
-      KURISU_E2E_USER_DATA_DIR: appPaths.userDataDir,
+      AMADEUS_E2E_USER_DATA_DIR: appPaths.userDataDir,
       // Likewise for the built-in MCP server's port: on the default, the suite
       // would be poking at whatever install is already running on this machine.
-      KURISU_E2E_MCP_PORT: String(appPaths.mcpPort),
+      AMADEUS_E2E_MCP_PORT: String(appPaths.mcpPort),
       // Ensure production mode (no VITE_DEV_SERVER_URL) so main.ts loads dist/index.html
       VITE_DEV_SERVER_URL: '',
-      KURISU_E2E: '1',
+      AMADEUS_E2E: '1',
     },
   });
 
@@ -166,10 +166,10 @@ export async function launchApp(backendUrl: string, appPaths: AppPaths, electron
 
   // Seed backend URL into localStorage and reload so axios + wsManager pick it up.
   await firstPage.evaluate((url) => {
-    localStorage.setItem('kurisu_backend_url', url);
-    localStorage.removeItem('kurisu_auth_token');
-    localStorage.removeItem('kurisu_refresh_token');
-    localStorage.setItem('kurisu_remember_me', 'false');
+    localStorage.setItem('amadeus_backend_url', url);
+    localStorage.removeItem('amadeus_auth_token');
+    localStorage.removeItem('amadeus_refresh_token');
+    localStorage.setItem('amadeus_remember_me', 'false');
   }, backendUrl);
   await firstPage.reload();
 

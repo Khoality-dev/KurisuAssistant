@@ -1,6 +1,6 @@
 """Shared test fixtures.
 
-Environment first. ``kurisuassistant.db.session`` builds its engine from the
+Environment first. ``amadeus.db.session`` builds its engine from the
 ``POSTGRES_*`` variables at import, so the database name every test module ends
 up bound to has to be fixed here, before anything from the package is imported. A
 fresh name per session keeps the suite off any real database; ``system_db``
@@ -23,19 +23,19 @@ import uuid
 from pathlib import Path
 
 os.environ.setdefault("JWT_SECRET_KEY", "test-not-a-real-secret")
-os.environ["POSTGRES_DB"] = f"kurisu_test_{uuid.uuid4().hex[:8]}"
+os.environ["POSTGRES_DB"] = f"amadeus_test_{uuid.uuid4().hex[:8]}"
 
-from kurisuassistant.core import paths as _paths  # noqa: E402
+from amadeus.core import paths as _paths  # noqa: E402
 
-TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="kurisu-test-data-"))
+TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="amadeus-test-data-"))
 _paths.DATA_DIR = TEST_DATA_DIR
 
 import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from kurisuassistant.core.deps import get_authenticated_user  # noqa: E402
-from kurisuassistant.routers import tts, asr  # noqa: E402
+from amadeus.core.deps import get_authenticated_user  # noqa: E402
+from amadeus.routers import tts, asr  # noqa: E402
 from tests.postgres import require_postgres  # noqa: E402
 
 
@@ -91,8 +91,8 @@ def mock_ollama(mock_ollama_server):
 # ---------------------------------------------------------------------------
 
 def _postgres_admin_url() -> str:
-    user = os.getenv("POSTGRES_USER", "kurisu")
-    password = os.getenv("POSTGRES_PASSWORD", "kurisu")
+    user = os.getenv("POSTGRES_USER", "amadeus")
+    password = os.getenv("POSTGRES_PASSWORD", "amadeus")
     host = os.getenv("POSTGRES_HOST", "localhost")
     port = os.getenv("POSTGRES_PORT", "5432")
     return f"postgresql://{user}:{password}@{host}:{port}/postgres"
@@ -104,10 +104,10 @@ SYSTEM_TEST_PASSWORD = "tester-password"
 
 def _create_activated_user(username: str, password: str) -> None:
     """Register an account and activate it, as the operator would by hand."""
-    from kurisuassistant.core.accounts import provision_user
-    from kurisuassistant.core.security import hash_password
-    from kurisuassistant.db.repositories import UserRepository
-    from kurisuassistant.db.session import get_session
+    from amadeus.core.accounts import provision_user
+    from amadeus.core.security import hash_password
+    from amadeus.db.repositories import UserRepository
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         repo = UserRepository(session)
@@ -117,8 +117,8 @@ def _create_activated_user(username: str, password: str) -> None:
 
 
 def _set_ollama_url(username: str, url: str) -> None:
-    from kurisuassistant.db.models import User
-    from kurisuassistant.db.session import get_session
+    from amadeus.db.models import User
+    from amadeus.db.session import get_session
 
     with get_session() as session:
         session.query(User).filter_by(username=username).one().ollama_url = url
@@ -145,13 +145,13 @@ def system_db():
     except Exception as exc:  # pragma: no cover - environment dependent
         require_postgres(exc, "system tests (set POSTGRES_HOST/PORT)")
 
-    from kurisuassistant.db.init import init_db
+    from amadeus.db.init import init_db
 
     init_db()
     _create_activated_user(SYSTEM_TEST_USER, SYSTEM_TEST_PASSWORD)
     yield db_name
 
-    from kurisuassistant.db.session import engine
+    from amadeus.db.session import engine
 
     engine.dispose()
     with admin.connect() as conn:
@@ -171,8 +171,8 @@ def system_client(system_db, mock_ollama_server):
     every chat, compaction and consolidation call the account makes.
     """
     _set_ollama_url(SYSTEM_TEST_USER, mock_ollama_server.url)
-    from kurisuassistant.main import app
-    from kurisuassistant.workers import service
+    from amadeus.main import app
+    from amadeus.workers import service
 
     # The app's own idle and index scans wait out these intervals before every
     # pass. Left at a minute, the idle scan found conversations an earlier test
@@ -183,7 +183,7 @@ def system_client(system_db, mock_ollama_server):
     service.INDEX_SCAN_INTERVAL_SECONDS = 10**9
     # Same for due calendar reminders (#282): test_calendar_reminders.py runs
     # the scan by hand.
-    from kurisuassistant.workers import reminders
+    from amadeus.workers import reminders
 
     reminders.REMINDER_SCAN_INTERVAL_SECONDS = 10**9
 
@@ -199,7 +199,7 @@ class Account:
     """One activated account, logged in, its Ollama at the mock."""
 
     def __init__(self, client, username: str, password: str):
-        from kurisuassistant.version import WIRE_PROTOCOL
+        from amadeus.version import WIRE_PROTOCOL
 
         self.client = client
         self.username = username
@@ -213,8 +213,8 @@ class Account:
 
     @property
     def id(self) -> int:
-        from kurisuassistant.db.models import User
-        from kurisuassistant.db.session import get_session
+        from amadeus.db.models import User
+        from amadeus.db.session import get_session
 
         with get_session() as session:
             return session.query(User).filter_by(username=self.username).one().id

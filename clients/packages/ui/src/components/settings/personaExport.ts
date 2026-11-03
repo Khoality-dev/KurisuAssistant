@@ -6,8 +6,8 @@
  * the bundle will count against: the 3D model and its clips are metered on the
  * receiving account, pose art is not.
  */
-import { CharacterUploadError, describeRequestFailure } from '@kurisu/api';
-import type { PersonaExportSize } from '@kurisu/models';
+import { CharacterUploadError, describeRequestFailure } from '@amadeus/api';
+import type { PersonaExportSize } from '@amadeus/models';
 import { mb } from '../character/vrmSetupText';
 
 type Size = PersonaExportSize['character'];

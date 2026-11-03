@@ -41,21 +41,21 @@ import FaceIcon from '@mui/icons-material/Face';
 import HeadsetOffIcon from '@mui/icons-material/HeadsetOff';
 
 import { AnimatePresence } from 'framer-motion';
-import { useConversationStore } from '@kurisu/state';
-import { useTasksStore } from '@kurisu/state';
-import { useAuthStore } from '@kurisu/state';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
-import { ASSISTANT_NAME } from '@kurisu/models';
-import type { Assistant, Conversation, PermissionMode } from '@kurisu/models';
+import { useConversationStore } from '@amadeus/state';
+import { useTasksStore } from '@amadeus/state';
+import { useAuthStore } from '@amadeus/state';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
+import { ASSISTANT_NAME } from '@amadeus/models';
+import type { Assistant, Conversation, PermissionMode } from '@amadeus/models';
 
-import { useTTS } from '@kurisu/hooks';
-import { useVisionStore, setThinking } from '@kurisu/state';
-import { useCharacterPanel } from '@kurisu/hooks';
-import { useInteractiveASR, useCapabilities, voiceBarPhase, isVoiceProblem } from '@kurisu/hooks';
-import { useMicStore, useLayoutStore } from '@kurisu/state';
-import { usePersonaStore } from '@kurisu/state';
-import { useStreamingChat } from '@kurisu/hooks';
-import { useContextBreakdown } from '@kurisu/hooks';
+import { useTTS } from '@amadeus/hooks';
+import { useVisionStore, setThinking } from '@amadeus/state';
+import { useCharacterPanel } from '@amadeus/hooks';
+import { useInteractiveASR, useCapabilities, voiceBarPhase, isVoiceProblem } from '@amadeus/hooks';
+import { useMicStore, useLayoutStore } from '@amadeus/state';
+import { usePersonaStore } from '@amadeus/state';
+import { useStreamingChat } from '@amadeus/hooks';
+import { useContextBreakdown } from '@amadeus/hooks';
 import { VoiceModeBar, voiceColors } from '../VoiceModeBar';
 import { VoiceModeToggle } from './VoiceModeToggle';
 import { InUseChip, selectionColors } from '../InUseChip';
@@ -66,7 +66,7 @@ import { SelectionChips } from './SelectionChips';
 import { ChatComposer } from './ChatComposer';
 import { ToolApprovalBar, ApprovalRequest } from './ToolApprovalBar';
 import { NoModelPrompt } from './NoModelPrompt';
-import { resolveBridge } from '@kurisu/platform';
+import { resolveBridge } from '@amadeus/platform';
 import { useTheme } from '@mui/material/styles';
 import { findScope } from '../findScope';
 
@@ -278,15 +278,15 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   // /context slash command opens the breakdown dialog
   useEffect(() => {
     const handler = () => setBreakdownDialogOpen(true);
-    window.addEventListener('kurisu:open-context-breakdown', handler);
-    return () => window.removeEventListener('kurisu:open-context-breakdown', handler);
+    window.addEventListener('amadeus:open-context-breakdown', handler);
+    return () => window.removeEventListener('amadeus:open-context-breakdown', handler);
   }, []);
 
   // /resume slash command opens the conversation picker
   useEffect(() => {
     const handler = () => setResumeDialogOpen(true);
-    window.addEventListener('kurisu:open-resume-picker', handler);
-    return () => window.removeEventListener('kurisu:open-resume-picker', handler);
+    window.addEventListener('amadeus:open-resume-picker', handler);
+    return () => window.removeEventListener('amadeus:open-resume-picker', handler);
   }, []);
 
   // Fetch conversations when the resume dialog opens
@@ -397,8 +397,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
   // /persona slash command opens the persona sheet
   useEffect(() => {
     const handler = () => setPersonaSheetOpen(true);
-    window.addEventListener('kurisu:open-persona-picker', handler);
-    return () => window.removeEventListener('kurisu:open-persona-picker', handler);
+    window.addEventListener('amadeus:open-persona-picker', handler);
+    return () => window.removeEventListener('amadeus:open-persona-picker', handler);
   }, []);
 
   const selectPersona = usePersonaStore((s) => s.selectPersona);
@@ -529,8 +529,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
 
   useEffect(() => {
     const handler = () => { void handleCameraToggle(); };
-    window.addEventListener('kurisu:toggle-vision', handler);
-    return () => window.removeEventListener('kurisu:toggle-vision', handler);
+    window.addEventListener('amadeus:toggle-vision', handler);
+    return () => window.removeEventListener('amadeus:toggle-vision', handler);
   }, [handleCameraToggle]);
 
   // Host tool approval (IPC from Electron main process)
@@ -775,7 +775,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ characterShown = false, 
           <IconButton
             size="small"
             aria-label={characterShown ? 'Hide character' : 'Show character'}
-            onClick={() => window.dispatchEvent(new Event('kurisu:toggle-character'))}
+            onClick={() => window.dispatchEvent(new Event('amadeus:toggle-character'))}
             sx={{ p: 0.5 }}
           >
             <FaceIcon sx={{ fontSize: 18, color: characterShown ? 'primary.main' : 'text.secondary' }} />

@@ -7,7 +7,7 @@
  * changes shape, change the scenario that mirrors it.
  */
 
-import type { CharacterConfigDTO } from '@kurisu/models';
+import type { CharacterConfigDTO } from '@amadeus/models';
 import { ONE_POSE_CHARACTER, VRM_CHARACTER_WITH_MODEL } from './server';
 import type { MockBackend, MockBackendOptions, MockConversationSeed, StreamScript } from './server';
 
@@ -57,7 +57,7 @@ const VRM_EMOTION_CHARACTER: CharacterConfigDTO = {
     camera: { target: 'upper_body', fov: 24, offset_y: 0, background: '#ffffff' },
   },
 };
-const AMADEUS = { id: 2, name: 'Amadeus', description: 'A second persona, for handoffs.' };
+const MOZART = { id: 2, name: 'Mozart', description: 'A second persona, for handoffs.' };
 
 /** What `GET /tts/voices` lists, in the backend's shape: a persona stores the id (#214). */
 const PRESET_VOICES = [
@@ -81,7 +81,7 @@ const SHORT_REPLY: StreamScript = {
  * Invented, like every other fixture here: these end up in a public repo, so no
  * persona, prompt, transcript or skill below comes from a real install. The
  * built-in tool descriptions are the exception and are copied verbatim from
- * `backend/kurisuassistant/tools/`, because that screen documents the backend's
+ * `backend/amadeus/tools/`, because that screen documents the backend's
  * own words.
  */
 const DOCS_PERSONAS = [
@@ -139,7 +139,7 @@ const DOCS_MCP_SERVERS = [
   },
 ];
 
-/** Verbatim from `backend/kurisuassistant/tools/` — that screen quotes the backend. */
+/** Verbatim from `backend/amadeus/tools/` — that screen quotes the backend. */
 const DOCS_TOOLS = {
   server: [
     {
@@ -370,7 +370,7 @@ const TASK_SCHEDULED_REPLY: StreamScript = {
 export const SCENARIOS: Record<string, Scenario> = {
   default: {
     description: 'Two personas (Kurisu answers), a model chosen, two preset voices, a short streamed reply.',
-    options: { personas: [KURISU, AMADEUS], voices: PRESET_VOICES, stream: SHORT_REPLY },
+    options: { personas: [KURISU, MOZART], voices: PRESET_VOICES, stream: SHORT_REPLY },
   },
   docs: {
     description: 'The cast the documentation screenshots are taken from — every screen furnished.',
@@ -389,7 +389,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     // streaming.spec.ts: "assistant text and tool output both render when a tool call interrupts"
     description: 'Assistant text interrupted by a tool result, then the answer.',
     options: {
-      personas: [KURISU, AMADEUS],
+      personas: [KURISU, MOZART],
       tools: { server: [{ name: 'lookup', description: 'Look a value up.', read_only: true }] },
       stream: {
         chunks: [
@@ -407,7 +407,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   'sub-agent': {
     description: 'A step the assistant hands to a sub-agent it spawns, mid-answer (the sub-agent tag and duration, #354).',
     options: {
-      personas: [KURISU, AMADEUS],
+      personas: [KURISU, MOZART],
       stream: {
         chunks: [
           { content: 'Delegating. ', role: 'assistant', delayMs: 150 },
@@ -423,13 +423,13 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
   handoff: {
     // streaming.spec.ts: "a persona handoff mid-stream splits the assistant text"
-    description: 'Kurisu starts the answer and Amadeus finishes it — two bubbles, two speakers.',
+    description: 'Kurisu starts the answer and Mozart finishes it — two bubbles, two speakers.',
     options: {
-      personas: [KURISU, AMADEUS],
+      personas: [KURISU, MOZART],
       stream: {
         chunks: [
           { content: 'Kurisu speaking.', role: 'assistant', delayMs: 150 },
-          { content: 'Amadeus speaking.', role: 'assistant', delayMs: 150, personaId: AMADEUS.id },
+          { content: 'Mozart speaking.', role: 'assistant', delayMs: 150, personaId: MOZART.id },
         ],
       },
     },
@@ -438,7 +438,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     // streaming.spec.ts: "thinking chunks render collapsible"
     description: 'A thinking chunk before the answer (the collapsible "Thinking" block).',
     options: {
-      personas: [KURISU, AMADEUS],
+      personas: [KURISU, MOZART],
       stream: {
         chunks: [
           { content: '', thinking: 'Let me consider this carefully. ', role: 'assistant', delayMs: 10 },
@@ -451,7 +451,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     // streaming.spec.ts: "cancel during stream preserves partial content"
     description: 'One chunk every 400 ms for a while — long enough to press Stop.',
     options: {
-      personas: [KURISU, AMADEUS],
+      personas: [KURISU, MOZART],
       stream: {
         chunks: Array.from({ length: 20 }, (_, i) => ({
           content: `word${i + 1} `, role: 'assistant' as const, delayMs: 400,
@@ -463,7 +463,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     // characterWindow.spec.ts: the second window fetches Kurisu's art with a token.
     description: 'Kurisu has a one-pose character, so the character window has art to fetch (a bearer is required, as on the backend).',
     options: {
-      personas: [{ ...KURISU, character_config: ONE_POSE_CHARACTER }, AMADEUS],
+      personas: [{ ...KURISU, character_config: ONE_POSE_CHARACTER }, MOZART],
       stream: SHORT_REPLY,
     },
   },
@@ -475,7 +475,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     options: {
       personas: [
         { ...KURISU, character_config: VRM_EMOTION_CHARACTER },
-        AMADEUS,
+        MOZART,
       ],
       stream: {
         chunks: [
@@ -491,7 +491,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     // with an ETag and a 304, and the upload routes have something to replace.
     description: 'Kurisu is a VRM persona with a model uploaded; the character store routes answer (a bearer is required to fetch).',
     options: {
-      personas: [{ ...KURISU, character_config: VRM_CHARACTER_WITH_MODEL }, AMADEUS],
+      personas: [{ ...KURISU, character_config: VRM_CHARACTER_WITH_MODEL }, MOZART],
       stream: SHORT_REPLY,
     },
   },
@@ -500,7 +500,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     // fits the screen (#332).
     description: "Kurisu's conversation already runs to forty messages, and the reply is taller than the screen.",
     options: {
-      personas: [KURISU, AMADEUS],
+      personas: [KURISU, MOZART],
       conversations: [{
         title: 'A long conversation',
         persona: KURISU.name,
@@ -523,14 +523,14 @@ export const SCENARIOS: Record<string, Scenario> = {
   'no-model': {
     // firstRun.spec.ts: a brand-new account whose model has never been chosen.
     description: 'A fresh account with no model chosen: the first message is refused with NO_MODEL_SELECTED.',
-    options: { personas: [KURISU, AMADEUS], stream: SHORT_REPLY },
+    options: { personas: [KURISU, MOZART], stream: SHORT_REPLY },
     apply: (mock) => mock.setAssistantModel(null),
   },
   tasks: {
     // tasks.spec.ts and Android's TasksScreenTest (#352).
     description: 'A running, a waiting-for-approval, a scheduled and a paused task with runs to open; a reply that schedules another.',
     options: {
-      personas: [KURISU, AMADEUS],
+      personas: [KURISU, MOZART],
       tasks: TASKS,
       conversations: [TASK_RUN_CONVERSATION, TASK_WAITING_CONVERSATION],
       stream: TASK_SCHEDULED_REPLY,

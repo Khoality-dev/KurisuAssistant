@@ -1,7 +1,7 @@
 """Fakes for the speech tests: an engine's answers, and WAVs to join.
 
 Every adapter reaches its engine through ``Engine.call``, which uses
-``kurisuassistant.speech.engines.base.get_client``; patching that is the whole
+``amadeus.speech.engines.base.get_client``; patching that is the whole
 seam. A real ``httpx.Response`` is used so ``raise_for_status`` behaves like the
 real thing.
 """
@@ -15,7 +15,7 @@ import httpx
 GPTSOVITS = "http://gpt-sovits:9880"
 VIXTTS = "http://vixtts:19770"
 WHISPER = "http://whisper:9000"
-SEAM = "kurisuassistant.speech.engines.base.get_client"
+SEAM = "amadeus.speech.engines.base.get_client"
 
 
 def response(status: int = 200, *, content: bytes | None = None, json=None, url: str = GPTSOVITS) -> httpx.Response:

@@ -8,7 +8,7 @@ being read.
 
 import pytest
 
-from kurisuassistant.utils.extraction import (
+from amadeus.utils.extraction import (
     ExtractionError,
     Page,
     Unextractable,

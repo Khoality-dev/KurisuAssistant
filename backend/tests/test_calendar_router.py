@@ -181,16 +181,16 @@ class TestChange:
     def _mark_delivered(entry_id):
         from datetime import datetime
 
-        from kurisuassistant.db.models import CalendarEntry
-        from kurisuassistant.db.session import get_session
+        from amadeus.db.models import CalendarEntry
+        from amadeus.db.session import get_session
 
         with get_session() as session:
             session.get(CalendarEntry, entry_id).delivered_at = datetime.utcnow()
 
     @staticmethod
     def _delivered_at(entry_id):
-        from kurisuassistant.db.models import CalendarEntry
-        from kurisuassistant.db.session import get_session
+        from amadeus.db.models import CalendarEntry
+        from amadeus.db.session import get_session
 
         with get_session() as session:
             return session.get(CalendarEntry, entry_id).delivered_at

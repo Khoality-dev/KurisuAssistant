@@ -13,10 +13,10 @@ plugins {
 
 // Push to phones through Firebase Cloud Messaging (#353). google-services.json is
 // per deployment and never committed (release.yml writes it from the optional
-// KURISU_GOOGLE_SERVICES_JSON secret), so the plugin is applied only when the file
+// AMADEUS_GOOGLE_SERVICES_JSON secret), so the plugin is applied only when the file
 // is there: CI, forks and local builds without it build and test the same, and the
 // app simply has no background push. A variant the file does not list — the dev
-// flavor's com.kurisu.assistant.dev until it is added to the Firebase project —
+// flavor's com.amadeus.assistant.dev until it is added to the Firebase project —
 // builds with a warning instead of failing. The plugin's own
 // missingGoogleServicesStrategy only covers a missing *file* (4.4.2 still fails on a
 // missing *client*), so each variant whose applicationId the file does not list has
@@ -51,18 +51,18 @@ if (googleServicesJson.exists()) {
 // to come from this project and that no real release can ever upgrade (#100).
 //
 // Two ways to provide the keystore (matches the GitHub Actions release workflow):
-//   1. KURISU_KEYSTORE_BASE64  — the .jks file base64-encoded, inline in .env (preferred)
-//   2. KURISU_KEYSTORE         — path to a .jks file on disk (legacy, still supported)
+//   1. AMADEUS_KEYSTORE_BASE64  — the .jks file base64-encoded, inline in .env (preferred)
+//   2. AMADEUS_KEYSTORE         — path to a .jks file on disk (legacy, still supported)
 val envFile = rootProject.file(".env")
 val envProps = Properties().apply {
     if (envFile.exists()) envFile.inputStream().use { load(it) }
 }
 fun env(key: String): String? = envProps.getProperty(key)?.takeIf { it.isNotBlank() }
-val releaseKeystoreBase64 = env("KURISU_KEYSTORE_BASE64")
-val releaseKeystorePath = env("KURISU_KEYSTORE")
-val releaseKeystorePassword = env("KURISU_KEYSTORE_PASSWORD")
-val releaseKeyAlias = env("KURISU_KEY_ALIAS")
-val releaseKeyPassword = env("KURISU_KEY_PASSWORD")
+val releaseKeystoreBase64 = env("AMADEUS_KEYSTORE_BASE64")
+val releaseKeystorePath = env("AMADEUS_KEYSTORE")
+val releaseKeystorePassword = env("AMADEUS_KEYSTORE_PASSWORD")
+val releaseKeyAlias = env("AMADEUS_KEY_ALIAS")
+val releaseKeyPassword = env("AMADEUS_KEY_PASSWORD")
 
 // Resolve the keystore file. Base64 wins if both are set — same precedence the
 // GitHub workflow uses, so local and CI behave identically.
@@ -103,39 +103,39 @@ fun gitIsDirty(): Boolean = try {
 } catch (e: Exception) { false }
 
 // A release is built from the tag `vX.Y.Z` (#256): the root release.yml passes
-// `-Pkurisu.releaseVersion=X.Y.Z`, versionName becomes that number and
+// `-Pamadeus.releaseVersion=X.Y.Z`, versionName becomes that number and
 // versionCode is derived from it as X*10000 + Y*100 + Z — which rises with every
 // release for as long as Y and Z stay below 100, and is far above the hand-kept
 // codes the android-v* releases shipped with (11 at the last one). Without the
 // property — every local and dev-flavor build — the literals in defaultConfig
 // apply, and the dev flavor stamps the commit onto them.
-val releaseVersion: String? = (project.findProperty("kurisu.releaseVersion") as String?)
+val releaseVersion: String? = (project.findProperty("amadeus.releaseVersion") as String?)
     ?.trim()?.takeIf { it.isNotEmpty() }
 
 fun releaseVersionCode(version: String): Int {
     val parts = version.split(".")
     require(parts.size == 3 && parts.all { it.toIntOrNull() != null }) {
-        "kurisu.releaseVersion must be X.Y.Z, got '$version'"
+        "amadeus.releaseVersion must be X.Y.Z, got '$version'"
     }
     val (major, minor, patch) = parts.map { it.toInt() }
     require(minor < 100 && patch < 100) {
-        "kurisu.releaseVersion '$version': the minor and patch numbers must stay below 100 for versionCode to keep rising"
+        "amadeus.releaseVersion '$version': the minor and patch numbers must stay below 100 for versionCode to keep rising"
     }
     return major * 10000 + minor * 100 + patch
 }
 
 android {
-    namespace = "com.kurisu.assistant"
+    namespace = "com.amadeus.assistant"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.kurisu.assistant"
+        applicationId = "com.amadeus.assistant"
         minSdk = 26
         targetSdk = 35
         versionCode = releaseVersion?.let(::releaseVersionCode) ?: 11
         versionName = releaseVersion ?: "0.3.0"
         // Wire-protocol integer — must equal backend `WIRE_PROTOCOL` in
-        // KurisuAssistant/kurisuassistant/version.py. Bump on any breaking
+        // Amadeus/amadeus/version.py. Bump on any breaking
         // change to REST/WebSocket payloads, headers, or auth flow. Sent on
         // every request via WireProtocolInterceptor and checked once on
         // startup against `GET /version`.
@@ -180,8 +180,8 @@ android {
     }
 
     // Two install-side-by-side variants:
-    //   prod → com.kurisu.assistant       (matches GitHub Releases — auto-update works)
-    //   dev  → com.kurisu.assistant.dev   (debug builds, app_name "Kurisu Dev")
+    //   prod → com.amadeus.assistant       (matches GitHub Releases — auto-update works)
+    //   dev  → com.amadeus.assistant.dev   (debug builds, app_name "Amadeus Dev")
     flavorDimensions += "channel"
     productFlavors {
         create("prod") {
@@ -196,9 +196,9 @@ android {
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev-${gitShortHash()}${if (gitIsDirty()) "-dirty" else ""}"
             // Dev flavor polls the LAN APK server for new dev builds. Read from
-            // .env (KURISU_DEV_UPDATE_URL) so the value can change per dev
+            // .env (AMADEUS_DEV_UPDATE_URL) so the value can change per dev
             // machine without touching source. Empty value disables the check.
-            val devUpdateUrl = env("KURISU_DEV_UPDATE_URL") ?: ""
+            val devUpdateUrl = env("AMADEUS_DEV_UPDATE_URL") ?: ""
             buildConfigField("String", "DEV_UPDATE_BASE_URL", "\"$devUpdateUrl\"")
             // Where the instrumented tests (androidTest/) expect the standalone
             // mock backend's `default` scenario — `npm run mock:backend -- --host
@@ -226,7 +226,7 @@ android {
         outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
             output.outputFileName =
-                "kurisu-assistant-${variant.flavorName}-${variant.buildType.name}-${variant.versionName}.apk"
+                "amadeus-${variant.flavorName}-${variant.buildType.name}-${variant.versionName}.apk"
         }
     }
 
@@ -267,10 +267,10 @@ android {
 // instrumented test variants are exempt for the same reason: they are not
 // something anyone installs.
 val missingSigningValues: List<String> = buildList {
-    if (resolvedKeystoreFile == null) add("KURISU_KEYSTORE_BASE64 (or KURISU_KEYSTORE)")
-    if (releaseKeystorePassword == null) add("KURISU_KEYSTORE_PASSWORD")
-    if (releaseKeyAlias == null) add("KURISU_KEY_ALIAS")
-    if (releaseKeyPassword == null) add("KURISU_KEY_PASSWORD")
+    if (resolvedKeystoreFile == null) add("AMADEUS_KEYSTORE_BASE64 (or AMADEUS_KEYSTORE)")
+    if (releaseKeystorePassword == null) add("AMADEUS_KEYSTORE_PASSWORD")
+    if (releaseKeyAlias == null) add("AMADEUS_KEY_ALIAS")
+    if (releaseKeyPassword == null) add("AMADEUS_KEY_PASSWORD")
 }
 
 val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {

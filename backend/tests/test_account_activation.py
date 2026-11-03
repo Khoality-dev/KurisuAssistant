@@ -10,10 +10,10 @@ test is what the database and three separate authentication paths agree on.
 
 import pytest
 
-from kurisuassistant.core.accounts import ACCOUNT_INACTIVE_DETAIL
-from kurisuassistant.db.repositories import UserRepository
-from kurisuassistant.db.session import get_session
-from kurisuassistant.version import WIRE_PROTOCOL
+from amadeus.core.accounts import ACCOUNT_INACTIVE_DETAIL
+from amadeus.db.repositories import UserRepository
+from amadeus.db.session import get_session
+from amadeus.version import WIRE_PROTOCOL
 
 pytestmark = pytest.mark.db
 
@@ -75,7 +75,7 @@ class TestTheGate:
         with pytest.raises(WebSocketDisconnect) as excinfo:
             with system_client.websocket_connect(
                 "/ws/chat",
-                subprotocols=["kurisu.auth.bearer", token, f"kurisu.wire.{WIRE_PROTOCOL}"],
+                subprotocols=["amadeus.auth.bearer", token, f"amadeus.wire.{WIRE_PROTOCOL}"],
             ) as ws:
                 ws.receive_json()
 

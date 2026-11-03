@@ -38,7 +38,7 @@ import {
   TaskAlt as FinishedIcon,
   Update as NextRunIcon,
 } from '@mui/icons-material';
-import type { AssistantTask, TaskDay, TaskRun, TaskScheduleUpdate } from '@kurisu/models';
+import type { AssistantTask, TaskDay, TaskRun, TaskScheduleUpdate } from '@amadeus/models';
 import {
   TASK_FILTERS,
   formatNextRun,
@@ -46,7 +46,7 @@ import {
   groupTasks,
   useConversationStore,
   useTasksStore,
-} from '@kurisu/state';
+} from '@amadeus/state';
 
 /**
  * Tasks (#352): the assistant's own work, running now or on a schedule. The

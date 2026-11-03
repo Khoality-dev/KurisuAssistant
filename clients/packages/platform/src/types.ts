@@ -5,7 +5,7 @@
  * one host. They live here now because a second host — a browser tab — has to
  * answer the same interface, and answer "no" to most of it.
  */
-import type { EmotionCue, FileEntry, NotificationTarget, ParsedCharacterConfig, SpeechSegment, SpeechSync } from '@kurisu/models';
+import type { EmotionCue, FileEntry, NotificationTarget, ParsedCharacterConfig, SpeechSegment, SpeechSync } from '@amadeus/models';
 
 /**
  * One persona's character, as shipped to the character window: the parsed

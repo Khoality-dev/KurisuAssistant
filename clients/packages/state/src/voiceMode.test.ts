@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { storage } from '@kurisu/api';
+import { storage } from '@amadeus/api';
 import { useMicStore } from './micStore';
 
 /**

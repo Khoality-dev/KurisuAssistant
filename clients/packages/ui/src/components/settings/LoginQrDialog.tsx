@@ -12,8 +12,8 @@ import {
   Typography,
 } from '@mui/material';
 import QRCode from 'qrcode';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
-import { storage } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
+import { storage } from '@amadeus/api';
 
 interface Props {
   open: boolean;

@@ -11,7 +11,7 @@ name in the router was joined onto a disk path as sent.
 ``TestKindAndMembers`` and ``TestReferencedPaths``.
 
 The store is pointed at ``tmp_path`` through the one name every module reads at
-call time, ``kurisuassistant.character.paths.CHAR_ASSETS_DIR``; the database is
+call time, ``amadeus.character.paths.CHAR_ASSETS_DIR``; the database is
 a stub repository, because none of this is about SQL.
 """
 
@@ -23,10 +23,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kurisuassistant.character import paths
-from kurisuassistant.character.references import Classification, classify, referenced_paths
-from kurisuassistant.core.deps import get_authenticated_user
-from kurisuassistant.routers import character, personas
+from amadeus.character import paths
+from amadeus.character.references import Classification, classify, referenced_paths
+from amadeus.core.deps import get_authenticated_user
+from amadeus.routers import character, personas
 
 PERSONA = 1
 OTHER = 2

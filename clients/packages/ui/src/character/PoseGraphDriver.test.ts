@@ -1,21 +1,21 @@
 /**
  * The 2D adapter meets the driver contract (#238).
  *
- * The conformance cases come from `@kurisu/vrm/testing` and are the same
+ * The conformance cases come from `@amadeus/vrm/testing` and are the same
  * ones the VRM driver passes: a surface relies on every one of them. The
  * compositor underneath is the real one, over a recording context and tagged
  * fake images, exactly as in `CanvasCompositor.test.ts`; the adapter's own
  * additions — refusal, abort, supersession, no-ops — are what the cases see.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CharacterDriver, ParsedCharacterConfig, PoseTree } from '@kurisu/models';
-import { driverConformanceCases, IDLE_INPUT } from '@kurisu/vrm/testing';
+import type { CharacterDriver, ParsedCharacterConfig, PoseTree } from '@amadeus/models';
+import { driverConformanceCases, IDLE_INPUT } from '@amadeus/vrm/testing';
 
 vi.mock('../videocall/engine/ImageCache', () => ({
   getCachedImage: async (url: string) => ({ tag: url, naturalWidth: 400, naturalHeight: 600 }),
   clearImageCache: () => {},
 }));
-vi.mock('@kurisu/api', () => ({
+vi.mock('@amadeus/api', () => ({
   fetchAuthedBlob: vi.fn(),
   config: { apiBaseUrl: 'http://backend' },
 }));

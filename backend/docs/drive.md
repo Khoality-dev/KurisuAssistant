@@ -1,4 +1,4 @@
-# Kurisu Drive
+# Amadeus Drive
 
 Account-scoped file storage on the server. A file put in from any signed-in
 client comes back, unchanged, from any other — which is the thing that did not

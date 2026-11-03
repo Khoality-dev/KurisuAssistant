@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { apiClient, describeSpeechFailure } from '@kurisu/api';
-import { storage } from '@kurisu/api';
-import { publishSpeech, publishSpeechSync } from '@kurisu/state';
-import type { SpeechSegment, VoiceInfo } from '@kurisu/models';
+import { apiClient, describeSpeechFailure } from '@amadeus/api';
+import { storage } from '@amadeus/api';
+import { publishSpeech, publishSpeechSync } from '@amadeus/state';
+import type { SpeechSegment, VoiceInfo } from '@amadeus/models';
 import type { SegmentCue } from './emotionTiming';
 import { curveOfWav, useAudioAmplitude, type AmplitudeCurve, type PlaybackListeners } from './useAudioAmplitude';
 

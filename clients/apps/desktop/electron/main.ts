@@ -15,17 +15,18 @@ import { loadSettings, saveSettings } from './settings';
 import { registerCredentialsIPC } from './credentials';
 import { registerNotificationIPC } from './notifications';
 import { buildContentSecurityPolicy, isAllowedNavigation, isExternallyOpenable } from './webSecurity';
+import { migrateUserDataDirectory } from './userDataMigration';
 
 // Set custom cache path to avoid permission issues on Windows.
 // In E2E tests we point userData at an isolated temp dir so the single-instance
 // lock doesn't collide with a real running install.
-const e2eUserData = process.env.KURISU_E2E_USER_DATA_DIR;
+const e2eUserData = process.env.AMADEUS_E2E_USER_DATA_DIR;
 if (e2eUserData) {
   app.setPath('userData', e2eUserData);
 } else {
-  app.setPath('userData', path.join(app.getPath('appData'), 'kurisu-assistant'));
+  app.setPath('userData', migrateUserDataDirectory(app.getPath('appData')));
 }
-app.setAppUserModelId('com.kurisu.assistant');
+app.setAppUserModelId('com.amadeus.assistant');
 
 // Single instance lock — only one instance allowed at a time
 const gotTheLock = app.requestSingleInstanceLock();
@@ -64,7 +65,7 @@ function createTray(): void {
     : nativeImage.createEmpty();
 
   tray = new Tray(trayIcon);
-  tray.setToolTip('KurisuAssistant');
+  tray.setToolTip('Amadeus');
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -384,7 +385,7 @@ function getExtensionExePath(appName: string): string {
   // exist (these companion apps are currently Windows-only), which is fine —
   // the IPC handler checks existence and surfaces "not installed" in the UI.
   const dataDir = process.env.XDG_DATA_HOME || path.join(app.getPath('home'), '.local', 'share');
-  return path.join(dataDir, 'kurisu-assistant', appName, appName);
+  return path.join(dataDir, 'amadeus-assistant', appName, appName);
 }
 
 function downloadFile(url: string, destPath: string, onProgress: (percent: number) => void): Promise<void> {
@@ -395,7 +396,7 @@ function downloadFile(url: string, destPath: string, onProgress: (percent: numbe
         return;
       }
       const lib = requestUrl.startsWith('https') ? https : http;
-      const req = lib.get(requestUrl, { headers: { 'User-Agent': 'KurisuAssistant' } }, (res) => {
+      const req = lib.get(requestUrl, { headers: { 'User-Agent': 'Amadeus' } }, (res) => {
         if (res.statusCode === 301 || res.statusCode === 302) {
           const location = res.headers.location;
           if (!location) { reject(new Error('Redirect without location')); return; }
@@ -581,7 +582,7 @@ app.whenReady().then(() => {
   });
   // The port is fixed in normal use; the E2E run overrides it so the suite
   // cannot end up talking to a real install listening on the default.
-  const mcpPortOverride = Number(process.env.KURISU_E2E_MCP_PORT);
+  const mcpPortOverride = Number(process.env.AMADEUS_E2E_MCP_PORT);
   startMcpServer(Number.isFinite(mcpPortOverride) && mcpPortOverride > 0 ? mcpPortOverride : undefined);
 
   // Auto-updater (no-op in dev mode — no update server configured)

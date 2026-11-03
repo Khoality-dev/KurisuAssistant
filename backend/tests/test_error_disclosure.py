@@ -17,10 +17,10 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-import kurisuassistant
-from kurisuassistant.core.errors import GENERIC_MESSAGE, internal_error, log_internal_error
+import amadeus
+from amadeus.core.errors import GENERIC_MESSAGE, internal_error, log_internal_error
 
-PACKAGE_ROOT = Path(inspect.getfile(kurisuassistant)).parent
+PACKAGE_ROOT = Path(inspect.getfile(amadeus)).parent
 ROUTERS = sorted((PACKAGE_ROOT / "routers").glob("*.py"))
 
 
@@ -52,7 +52,7 @@ SENTENCE_ERRORS = ("EntryError",)  # calendar/entries.py (#282)
 
 
 def test_the_sentence_errors_are_value_errors():
-    from kurisuassistant.calendar.entries import EntryError
+    from amadeus.calendar.entries import EntryError
 
     assert issubclass(EntryError, ValueError)
 
@@ -93,7 +93,7 @@ class TestWebSocketErrorsAreGeneric:
 
 class TestInternalErrorHelper:
     def test_the_detail_says_nothing_specific(self):
-        secret = "FATAL: password authentication failed for user 'kurisu'"
+        secret = "FATAL: password authentication failed for user 'amadeus'"
         exc = internal_error(RuntimeError(secret), "doing a thing")
         assert isinstance(exc, HTTPException)
         assert secret not in exc.detail

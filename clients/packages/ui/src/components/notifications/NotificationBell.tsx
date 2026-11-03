@@ -12,8 +12,8 @@ import {
   Typography,
 } from '@mui/material';
 import { NotificationsNone as BellIcon } from '@mui/icons-material';
-import { notificationHeading, notificationTarget } from '@kurisu/models';
-import { useNotificationStore } from '@kurisu/state';
+import { notificationHeading, notificationTarget } from '@amadeus/models';
+import { useNotificationStore } from '@amadeus/state';
 
 /**
  * The bell on the activity bar (#353). The badge is the server's unread count,

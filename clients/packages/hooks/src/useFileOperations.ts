@@ -5,9 +5,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import type { FileEntry } from '@kurisu/models';
-import { useExplorerStore } from '@kurisu/state';
-import { dirnameOf, fileSource, joinPath } from '@kurisu/api';
+import type { FileEntry } from '@amadeus/models';
+import { useExplorerStore } from '@amadeus/state';
+import { dirnameOf, fileSource, joinPath } from '@amadeus/api';
 
 interface UseFileOperationsParams {
   currentPath: string;

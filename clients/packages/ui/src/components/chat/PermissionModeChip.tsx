@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Box, Button, Chip, Menu, MenuItem, Typography } from '@mui/material';
 import { ExpandMore as ExpandIcon, Shield as ShieldIcon } from '@mui/icons-material';
-import type { PermissionMode } from '@kurisu/models';
+import type { PermissionMode } from '@amadeus/models';
 
 /**
  * The account's permission mode, beside the chat input (#360). Every tool is
@@ -20,7 +20,7 @@ const CHOICES: ModeChoice[] = [
   { mode: 'ask', title: 'Always ask', body: 'Every call waits for your approval.' },
   { mode: 'read_only', title: 'Read only', body: 'Looking runs; changing anything is refused.' },
   { mode: 'full', title: 'Full access', body: 'Everything runs without asking.' },
-  { mode: 'auto', title: 'Auto', body: 'Kurisu decides which calls need you.', comingSoon: true },
+  { mode: 'auto', title: 'Auto', body: 'Amadeus decides which calls need you.', comingSoon: true },
 ];
 
 export const PERMISSION_MODE_TITLES: Record<PermissionMode, string> = {

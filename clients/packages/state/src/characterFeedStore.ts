@@ -26,7 +26,7 @@ import {
   type ParsedCharacterConfig,
   type SpeechSegment,
   type SpeechSync,
-} from '@kurisu/models';
+} from '@amadeus/models';
 
 // ─── The refs ───
 

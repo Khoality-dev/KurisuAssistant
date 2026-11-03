@@ -15,8 +15,8 @@ import {
   SystemUpdateAlt as UpdateIcon,
   DeleteOutline as UninstallIcon,
 } from '@mui/icons-material';
-import { apiClient } from '@kurisu/api';
-import { requireExtensions, resolveBridge } from '@kurisu/platform';
+import { apiClient } from '@amadeus/api';
+import { requireExtensions, resolveBridge } from '@amadeus/platform';
 
 const HEALTH_POLL_INTERVAL = 5000;
 

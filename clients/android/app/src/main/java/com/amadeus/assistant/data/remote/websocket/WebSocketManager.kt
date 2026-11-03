@@ -1,0 +1,412 @@
+package com.amadeus.assistant.data.remote.websocket
+
+import android.util.Log
+import com.amadeus.assistant.BuildConfig
+import com.amadeus.assistant.data.local.PreferencesDataStore
+import com.amadeus.assistant.data.model.*
+import com.amadeus.assistant.data.remote.api.ProtocolMismatchSignal
+import com.amadeus.assistant.data.repository.VersionRepository
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.*
+import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
+
+internal fun wireSubprotocolHeader(protocol: Int): String =
+    "amadeus.wire.$protocol, kurisu.wire.$protocol"
+
+@Singleton
+class WebSocketManager @Inject constructor(
+    private val okHttpClient: OkHttpClient,
+    private val preferencesDataStore: PreferencesDataStore,
+    private val protocolMismatchSignal: ProtocolMismatchSignal,
+    private val versionRepository: VersionRepository,
+) {
+    companion object {
+        private const val TAG = "WebSocketManager"
+
+        /** The backend's close code for a wire-protocol mismatch (mirrors HTTP 426). */
+        const val WIRE_PROTOCOL_MISMATCH_CLOSE_CODE = 4426
+    }
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // WebSocket client — derived from shared client, no read/write timeouts
+    // pingInterval sends protocol-level WebSocket pings to keep connection alive
+    // through NAT gateways, firewalls, and mobile network idle timeouts
+    private val wsClient: OkHttpClient = okHttpClient.newBuilder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .writeTimeout(0, TimeUnit.MILLISECONDS)
+        .pingInterval(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    private var ws: WebSocket? = null
+    private var token: String? = null
+    private var reconnectAttempts = 0
+    private val reconnectDelay = 1000L
+    private val maxReconnectDelay = 10_000L
+    private var intentionalClose = false
+    @Volatile private var isConnected = false
+
+    private val connectMutex = Mutex()
+
+    private val _events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
+    val events: SharedFlow<ServerEvent> = _events
+
+    fun setToken(token: String) {
+        Log.d(TAG, "setToken called")
+        this.token = token
+    }
+
+    fun clearToken() {
+        this.token = null
+    }
+
+    suspend fun connect() {
+        Log.d(TAG, "connect() called, isConnected=$isConnected, ws=${ws != null}")
+        if (isConnected) return
+
+        connectMutex.withLock {
+            if (isConnected) return
+
+            val currentToken = token
+            if (currentToken == null) {
+                Log.e(TAG, "connect() failed — no token")
+                throw IllegalStateException("No authentication token set")
+            }
+            intentionalClose = false
+
+            val baseUrl = preferencesDataStore.getBackendUrl()
+            val wsUrl = baseUrl
+                .replace(Regex("^http:"), "ws:")
+                .replace(Regex("^https:"), "wss:")
+            // The token goes in a header, not the query string: query strings are
+            // recorded by proxies and this credential is refreshable for 30 days.
+            //
+            // The handshake also has to declare `X-Wire-Protocol` or the server
+            // closes it with 4426 before authenticating. That header is stamped by
+            // WireProtocolInterceptor, which [wsClient] inherits from the shared
+            // OkHttpClient — OkHttp runs application interceptors on the upgrade
+            // request too, so do not drop those interceptors from this builder.
+            val url = "$wsUrl/ws/chat"
+            Log.d(TAG, "connect() opening WebSocket to $url")
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $currentToken")
+                .addHeader("Sec-WebSocket-Protocol", wireSubprotocolHeader(BuildConfig.WIRE_PROTOCOL))
+                .build()
+
+            val deferred = CompletableDeferred<Unit>()
+
+            Log.d(TAG, "connect() creating WebSocket...")
+            val webSocket = wsClient.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    Log.d(TAG, "WebSocket onOpen — connected, response=${response.code}")
+                    reconnectAttempts = 0
+                    isConnected = true
+                    deferred.complete(Unit)
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    try {
+                        val jsonElement = json.parseToJsonElement(text)
+                        val type = jsonElement.jsonObject["type"]?.jsonPrimitive?.content
+                        // Silently handle ping/pong
+                        if (type == "ping") {
+                            webSocket.send("""{"type":"pong"}""")
+                            return
+                        }
+                        if (type == "pong") return
+
+                        val event = parseServerEvent(text)
+                        if (event != null) {
+                            _events.tryEmit(event)
+                        } else {
+                            onUnhandledEvent(type)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to parse WS message: ${e.message}")
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    Log.e(TAG, "WebSocket onFailure: ${t.message}", t)
+                    Log.e(TAG, "onFailure response: ${response?.code} ${response?.message}")
+                    val wasConnected = isConnected
+                    isConnected = false
+                    ws = null
+
+                    deferred.completeExceptionally(t)
+
+                    if (wasConnected && !intentionalClose && token != null) {
+                        emitConnectionLostError()
+                        attemptReconnect()
+                    }
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    Log.d(TAG, "WebSocket onClosed: code=$code reason=$reason")
+                    val wasConnected = isConnected
+                    isConnected = false
+                    ws = null
+
+                    deferred.completeExceptionally(Exception("WebSocket closed: $code $reason"))
+
+                    if (code == WIRE_PROTOCOL_MISMATCH_CLOSE_CODE) {
+                        // Retrying cannot fix a protocol mismatch — reconnecting
+                        // would loop until one side is upgraded. Raise the update
+                        // gate instead. The close reason carries no numbers, so
+                        // ask /version (exempt from the gate) for them (#150).
+                        onWireProtocolMismatch()
+                        return
+                    }
+
+                    if (wasConnected && !intentionalClose && token != null) {
+                        emitConnectionLostError()
+                        attemptReconnect()
+                    }
+                }
+            })
+            ws = webSocket
+
+            try {
+                withTimeout(15_000) {
+                    deferred.await()
+                }
+                Log.d(TAG, "connect() completed successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "connect() failed: ${e.message}")
+                ws?.close(1000, "Connect failed")
+                ws = null
+                throw e
+            }
+        }
+    }
+
+    fun disconnect() {
+        Log.d(TAG, "disconnect() called")
+        intentionalClose = true
+        ws?.close(1000, "Client disconnect")
+        ws = null
+        isConnected = false
+        reconnectAttempts = 0
+    }
+
+    fun isConnected(): Boolean = isConnected
+
+    private fun send(payload: String) {
+        val socket = ws ?: throw IllegalStateException("WebSocket not connected")
+        socket.send(payload)
+    }
+
+    private fun generateEventId(): String = UUID.randomUUID().toString()
+    private fun nowTimestamp(): String = Instant.now().toString()
+
+    /**
+     * Send a chat turn. It names no persona: the server answers as the persona
+     * in use for the whole account (#354).
+     */
+    suspend fun sendChatRequest(
+        text: String,
+        modelName: String,
+        conversationId: Int? = null,
+        images: List<String> = emptyList(),
+    ) {
+        Log.d(TAG, "sendChatRequest: text='${text.take(50)}' convId=$conversationId")
+        ensureConnected()
+        val payload = ChatRequestPayload(
+            eventId = generateEventId(),
+            timestamp = nowTimestamp(),
+            text = text,
+            modelName = modelName,
+            conversationId = conversationId,
+            images = images,
+        )
+        send(json.encodeToString(ChatRequestPayload.serializer(), payload))
+    }
+
+    fun sendCancel() {
+        if (!isConnected) return
+        val payload = CancelPayload(eventId = generateEventId(), timestamp = nowTimestamp())
+        send(json.encodeToString(CancelPayload.serializer(), payload))
+    }
+
+    suspend fun sendVisionStart(enableFace: Boolean = true, enablePose: Boolean = true, enableHands: Boolean = true) {
+        ensureConnected()
+        val payload = VisionStartPayload(
+            eventId = generateEventId(),
+            timestamp = nowTimestamp(),
+            enableFace = enableFace,
+            enablePose = enablePose,
+            enableHands = enableHands,
+        )
+        send(json.encodeToString(VisionStartPayload.serializer(), payload))
+    }
+
+    /**
+     * Send a webcam frame as a WebSocket binary message.
+     *
+     * Not JSON and not base64: the pixels must not sit in the send buffer in
+     * front of the assistant's next token, and base64 added a third to every
+     * frame (#111). See [BinaryFrameCodec].
+     */
+    fun sendVisionFrame(jpeg: ByteArray) {
+        if (!isConnected) return
+        val socket = ws ?: return
+        socket.send(
+            BinaryFrameCodec.encodeVisionFrame(jpeg, generateEventId(), nowTimestamp())
+        )
+    }
+
+    fun sendVisionStop() {
+        if (!isConnected) return
+        val payload = VisionStopPayload(eventId = generateEventId(), timestamp = nowTimestamp())
+        send(json.encodeToString(VisionStopPayload.serializer(), payload))
+    }
+
+    fun sendToolApprovalResponse(approvalId: String, approved: Boolean) {
+        if (!isConnected) return
+        val payload = ToolApprovalResponsePayload(
+            eventId = generateEventId(),
+            timestamp = nowTimestamp(),
+            approvalId = approvalId,
+            approved = approved,
+        )
+        send(json.encodeToString(ToolApprovalResponsePayload.serializer(), payload))
+    }
+
+    /**
+     * Answer a `tool_call_request`. Android registers no client tools, so
+     * [ChatStreamProcessor][com.amadeus.assistant.domain.chat.ChatStreamProcessor] uses
+     * this to refuse immediately instead of letting the backend block for 120s.
+     */
+    fun sendToolCallResponse(requestId: String, content: String, isError: Boolean) {
+        if (!isConnected) return
+        val payload = ToolCallResponsePayload(
+            eventId = generateEventId(),
+            timestamp = nowTimestamp(),
+            requestId = requestId,
+            content = content,
+            isError = isError,
+        )
+        send(json.encodeToString(ToolCallResponsePayload.serializer(), payload))
+    }
+
+    suspend fun sendCompactContext(conversationId: Int) {
+        ensureConnected()
+        val payload = CompactContextPayload(
+            eventId = generateEventId(),
+            timestamp = nowTimestamp(),
+            conversationId = conversationId,
+        )
+        send(json.encodeToString(CompactContextPayload.serializer(), payload))
+    }
+
+    private suspend fun ensureConnected() {
+        if (!isConnected) {
+            Log.d(TAG, "ensureConnected: not connected, calling connect()")
+            connect()
+        }
+    }
+
+    /**
+     * An event type the protocol table above does not cover. Release builds only log it;
+     * debug builds also push a visible error into the stream so a protocol gap shows up
+     * in the app instead of scrolling past in logcat (issue #92).
+     */
+    private fun onUnhandledEvent(type: String?) {
+        Log.w(TAG, "Unknown event type: $type")
+        if (BuildConfig.DEBUG) {
+            _events.tryEmit(ErrorEvent(
+                eventId = "",
+                timestamp = nowTimestamp(),
+                error = "Unhandled server event: $type",
+                code = WsErrorCodes.UNKNOWN_EVENT,
+            ))
+        }
+    }
+
+    private fun onWireProtocolMismatch() {
+        scope.launch {
+            val info = versionRepository.fetchServerVersion() ?: ProtocolMismatchSignal.unknown
+            Log.e(TAG, "Wire protocol mismatch: server ${info.backendVersion} speaks ${info.wireProtocol}")
+            protocolMismatchSignal.signal(info)
+        }
+    }
+
+    private fun emitConnectionLostError() {
+        _events.tryEmit(ErrorEvent(
+            eventId = "",
+            timestamp = nowTimestamp(),
+            error = "Connection lost. Reconnecting...",
+            code = WsErrorCodes.CONNECTION_LOST,
+        ))
+    }
+
+    private fun attemptReconnect() {
+        if (intentionalClose || token == null) return
+        reconnectAttempts++
+        val delay = (reconnectDelay * Math.pow(2.0, (reconnectAttempts - 1).toDouble()))
+            .toLong()
+            .coerceAtMost(maxReconnectDelay)
+        Log.d(TAG, "Reconnecting in ${delay}ms (attempt $reconnectAttempts)")
+
+        scope.launch {
+            delay(delay)
+            if (token != null && !isConnected && !intentionalClose) {
+                try {
+                    connect()
+                    // Backend sends a ConnectedEvent on successful WS handshake
+                } catch (_: Exception) {
+                    attemptReconnect()
+                }
+            }
+        }
+    }
+}
+
+private val kotlinx.serialization.json.JsonElement.jsonObject
+    get() = this as kotlinx.serialization.json.JsonObject
+
+private val parserJson = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+
+/**
+ * Decode one server frame into a [ServerEvent], or null when the `type` is one this
+ * client does not model.
+ *
+ * Top-level and `internal` so the unit tests can table-drive the whole protocol without
+ * standing up a socket — every entry in this `when` is a wire contract with the backend's
+ * `EventType` enum (backend/amadeus/websocket/events.py).
+ */
+internal fun parseServerEvent(text: String): ServerEvent? {
+    val jsonElement = parserJson.parseToJsonElement(text)
+    val type = jsonElement.jsonObject["type"]?.jsonPrimitive?.content ?: return null
+
+    return when (type) {
+        ProtocolEvents.STREAM_CHUNK -> parserJson.decodeFromString<StreamChunkEvent>(text)
+        ProtocolEvents.DONE -> parserJson.decodeFromString<DoneEvent>(text)
+        ProtocolEvents.ERROR -> parserJson.decodeFromString<ErrorEvent>(text)
+        ProtocolEvents.TOOL_APPROVAL_REQUEST -> parserJson.decodeFromString<ToolApprovalRequestEvent>(text)
+        ProtocolEvents.TOOL_CALL_REQUEST -> parserJson.decodeFromString<ToolCallRequestEvent>(text)
+        ProtocolEvents.VISION_RESULT -> parserJson.decodeFromString<VisionResultEvent>(text)
+        ProtocolEvents.CONNECTED -> parserJson.decodeFromString<ConnectedEvent>(text)
+        ProtocolEvents.CONTEXT_INFO -> parserJson.decodeFromString<ContextInfoEvent>(text)
+        // Carried by /ws/notifications, not this socket; parsed here so the
+        // registry of server events has one parser (#353).
+        ProtocolEvents.NOTIFICATION -> parserJson.decodeFromString<NotificationEvent>(text)
+        ProtocolEvents.NOTIFICATIONS_READY -> parserJson.decodeFromString<NotificationsReadyEvent>(text)
+        ProtocolEvents.NOTIFICATIONS_READ -> parserJson.decodeFromString<NotificationsReadEvent>(text)
+        ProtocolEvents.TASKS_CHANGED -> parserJson.decodeFromString<TasksChangedEvent>(text)
+        else -> null
+    }
+}

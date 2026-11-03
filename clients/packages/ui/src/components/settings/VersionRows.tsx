@@ -8,9 +8,9 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
-import { apiClient } from '@kurisu/api';
-import { WIRE_PROTOCOL, versionMismatchSentence, type ServerVersionInfo } from '@kurisu/models';
-import { resolveBridge } from '@kurisu/platform';
+import { apiClient } from '@amadeus/api';
+import { WIRE_PROTOCOL, versionMismatchSentence, type ServerVersionInfo } from '@amadeus/models';
+import { resolveBridge } from '@amadeus/platform';
 
 export interface VersionRowsProps {
   /** How the backend is asked; the default is the real client. Tests inject a stub. */

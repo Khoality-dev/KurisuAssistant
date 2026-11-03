@@ -15,11 +15,11 @@ MCP tool. A tool that does not say counts as one that changes something.
 
 import pytest
 
-from kurisuassistant.agents.base import AgentContext, AssistantConfig, PersonaConfig
-from kurisuassistant.agents.main import MainAgent
-from kurisuassistant.agents.permissions import PERMISSION_MODES, decide
-from kurisuassistant.tools import ToolRegistry, tool_registry
-from kurisuassistant.tools.base import BaseTool
+from amadeus.agents.base import AgentContext, AssistantConfig, PersonaConfig
+from amadeus.agents.main import MainAgent
+from amadeus.agents.permissions import PERMISSION_MODES, decide
+from amadeus.tools import ToolRegistry, tool_registry
+from amadeus.tools.base import BaseTool
 
 
 class ChangeTool(BaseTool):
@@ -222,7 +222,7 @@ class TestMcpReadOnlyHint:
     async def test_the_hint_is_read_from_the_annotations(self):
         from types import SimpleNamespace
 
-        from kurisuassistant.mcp_tools.client import list_tools
+        from amadeus.mcp_tools.client import list_tools
 
         class FakeClient:
             async def __aenter__(self):

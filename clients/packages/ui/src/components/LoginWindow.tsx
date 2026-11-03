@@ -12,9 +12,9 @@ import {
   Checkbox,
 } from '@mui/material';
 import { motion } from 'framer-motion';
-import { useAuthStore } from '@kurisu/state';
-import { storage, describeRequestFailure } from '@kurisu/api';
-import { resolveBridge } from '@kurisu/platform';
+import { useAuthStore } from '@amadeus/state';
+import { storage, describeRequestFailure } from '@amadeus/api';
+import { resolveBridge } from '@amadeus/platform';
 
 const MotionPaper = motion(Paper);
 
@@ -84,7 +84,7 @@ export const LoginWindow: React.FC = () => {
         }}
       >
         <Typography variant="h1" align="center" gutterBottom>
-          KurisuAssistant
+          Amadeus
         </Typography>
         <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 3 }}>
           Your AI-powered chat assistant

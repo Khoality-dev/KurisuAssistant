@@ -2,18 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline, Box, CircularProgress } from '@mui/material';
 import { createAppTheme } from './theme/theme';
-import { useAuthStore } from '@kurisu/state';
+import { useAuthStore } from '@amadeus/state';
 import { LoginWindow } from './components/LoginWindow';
 import { MainLayout } from './components/layout/MainLayout';
 import { OnboardingGate } from './components/onboarding/OnboardingGate';
 import { UpdateDialog } from './components/UpdateDialog';
 import { UpdateRequiredScreen } from './components/UpdateRequiredScreen';
-import { apiClient, configureAuthedFetch } from '@kurisu/api';
-import { wsManager } from '@kurisu/api';
-import { WIRE_PROTOCOL } from '@kurisu/models';
-import { resolveBridge } from '@kurisu/platform';
+import { apiClient, configureAuthedFetch } from '@amadeus/api';
+import { wsManager } from '@amadeus/api';
+import { WIRE_PROTOCOL } from '@amadeus/models';
+import { resolveBridge } from '@amadeus/platform';
 // Side-effect import: registers WebSocket listener for client-side MCP servers
-import '@kurisu/state';
+import '@amadeus/state';
 
 /** What the update screen needs to say: the server's numbers, or null where it would not tell us. */
 interface VersionMismatch {
@@ -106,7 +106,7 @@ const MainApp: React.FC = () => {
 export const App: React.FC = () => {
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
     try {
-      return (localStorage.getItem('kurisu_theme_mode') as 'light' | 'dark') || 'light';
+      return (localStorage.getItem('amadeus_theme_mode') as 'light' | 'dark') || 'light';
     } catch {
       return 'light';
     }
@@ -117,7 +117,7 @@ export const App: React.FC = () => {
   // Expose theme toggle globally for settings
   useEffect(() => {
     (window as any).__setThemeMode = (mode: 'light' | 'dark') => {
-      localStorage.setItem('kurisu_theme_mode', mode);
+      localStorage.setItem('amadeus_theme_mode', mode);
       setThemeMode(mode);
     };
     (window as any).__getThemeMode = () => themeMode;

@@ -1,6 +1,6 @@
-# Kurisu Assistant — Backend
+# Amadeus — Backend
 
-The API server behind the [desktop](../clients/desktop/) and [Android](../clients/android/) clients. Text chat, tools, and memory run in the base Docker Compose stack; speech services are optional. Part of the [KurisuAssistant monorepo](../README.md).
+The API server behind the [desktop](../clients/desktop/) and [Android](../clients/android/) clients. Text chat, tools, and memory run in the base Docker Compose stack; speech services are optional. Part of the [Amadeus monorepo](../README.md).
 
 ## Features
 
@@ -32,7 +32,7 @@ docker compose up -d
 curl localhost:15597/health
 ```
 
-The health check should return `{"status":"ok","service":"kurisuassistant"}`. Clients connect to `http://<server-address>:15597`.
+The health check should return `{"status":"ok","service":"amadeus"}`. Clients connect to `http://<server-address>:15597`.
 
 No account is created for you. Register in the client, then activate the account yourself — accounts are inactive until you do:
 
@@ -50,7 +50,7 @@ Migrations run automatically on container start (`docker-entrypoint.sh`). Before
 python -m venv venv && source venv/bin/activate   # venv\Scripts\activate on Windows
 pip install -r requirements.txt
 python -m scripts.migrate                          # Run database migrations
-uvicorn kurisuassistant.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir kurisuassistant
+uvicorn amadeus.main:app --host 0.0.0.0 --port 15597 --reload --reload-dir amadeus
 ```
 
 Run these development commands from this directory. Runtime `data/` is resolved from the backend package location, not the shell's current working directory.
@@ -82,7 +82,7 @@ Voice reference files go in `data/voice_storage/` (.wav/.mp3/.flac/.ogg).
 
 ## Backup & Restore
 
-The database, `data/`, and `.env` must be captured and restored as one unit. The named database volume is `kurisuassistant_postgres-data`. Follow the complete, ordered [backup and restore procedure](docs/operations.md#back-up); restoring mismatched database and file state can delete persona assets.
+The database, `data/`, and `.env` must be captured and restored as one unit. The named database volume is `amadeus_postgres-data`. Follow the complete, ordered [backup and restore procedure](docs/operations.md#back-up); restoring mismatched database and file state can delete persona assets.
 
 ## Documentation
 

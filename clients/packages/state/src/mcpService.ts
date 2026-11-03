@@ -16,10 +16,10 @@
  * 2. Sends result back via WebSocket
  */
 
-import { wsManager, type ToolCallRequestEvent } from '@kurisu/api';
+import { wsManager, type ToolCallRequestEvent } from '@amadeus/api';
 import { initAppToolsHandler } from './appToolsHandler';
-import { PLAYWRIGHT_MCP_ARGS } from '@kurisu/models';
-import { resolveBridge } from '@kurisu/platform';
+import { PLAYWRIGHT_MCP_ARGS } from '@amadeus/models';
+import { resolveBridge } from '@amadeus/platform';
 
 let initialized = false;
 let initializing = false;

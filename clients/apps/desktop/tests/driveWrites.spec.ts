@@ -1,5 +1,5 @@
 /**
- * Writing to Kurisu Drive (#312): upload, download, rename, move, delete and
+ * Writing to Amadeus Drive (#312): upload, download, rename, move, delete and
  * saving an edit, each checked against the mock's drive — the copy every one
  * of my devices sees. `drive.spec.ts` has the reading side.
  *
@@ -22,7 +22,7 @@ async function signIn(page: Page) {
 }
 
 async function enterDrive(page: Page) {
-  await page.getByRole('row', { name: /Kurisu Drive/ }).first().dblclick();
+  await page.getByRole('row', { name: /Amadeus Drive/ }).first().dblclick();
   await expect(page.getByRole('columnheader', { name: 'Where it lives' })).toBeVisible({ timeout: 15_000 });
 }
 
@@ -33,10 +33,10 @@ async function menuOn(page: Page, name: string, item: string) {
   await page.getByRole('menuitem', { name: item }).click();
 }
 
-test.describe('writing to Kurisu Drive', () => {
+test.describe('writing to Amadeus Drive', () => {
   test('Upload puts the picked file on the drive, in the folder on screen', async ({ page, mock, electronApp }) => {
     mock.addDriveEntry({ path: '/Receipts', isDir: true });
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-upload-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-upload-'));
     const local = path.join(dir, 'march.txt');
     fs.writeFileSync(local, 'coffee 4.50\nbread 3.20\n');
     await electronApp.evaluate(({ dialog }, picked) => {
@@ -58,7 +58,7 @@ test.describe('writing to Kurisu Drive', () => {
 
   test('Download brings the server\'s bytes to this computer', async ({ page, mock, electronApp }) => {
     mock.addDriveEntry({ path: '/report.md', content: '# Q3\nRevenue up.' });
-    const downloads = fs.mkdtempSync(path.join(os.tmpdir(), 'kurisu-downloads-'));
+    const downloads = fs.mkdtempSync(path.join(os.tmpdir(), 'amadeus-downloads-'));
     await electronApp.evaluate(({ app }, dir) => app.setPath('downloads', dir), downloads);
 
     try {

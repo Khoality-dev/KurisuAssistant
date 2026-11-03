@@ -22,8 +22,8 @@ import re
 
 import pytest
 
-from kurisuassistant.agents.main import EXPRESSION_PROMPT
-from kurisuassistant.character.emotion_source import EMOTION_LABELS
+from amadeus.agents.main import EXPRESSION_PROMPT
+from amadeus.character.emotion_source import EMOTION_LABELS
 
 pytestmark = pytest.mark.integration
 

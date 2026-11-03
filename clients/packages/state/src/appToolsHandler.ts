@@ -10,14 +10,14 @@
  * answered "Unknown app tool" when it finally calls it.
  */
 
-import { apiClient } from '@kurisu/api';
+import { apiClient } from '@amadeus/api';
 import { useVisionStore } from './visionStore';
 import { useMicStore } from './micStore';
 import { useExplorerStore } from './explorerStore';
 import { useLayoutStore } from './layoutStore';
 import { usePersonaStore } from './personaStore';
 import { refreshClientMCPServers } from './mcpService';
-import { resolveBridge } from '@kurisu/platform';
+import { resolveBridge } from '@amadeus/platform';
 
 interface AppToolCall {
   callId: number;

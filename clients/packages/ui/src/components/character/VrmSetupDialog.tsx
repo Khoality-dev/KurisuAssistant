@@ -62,7 +62,7 @@ import {
   WarningAmber as WarningIcon,
   WavingHand as WaveIcon,
 } from '@mui/icons-material';
-import { apiClient, CharacterUploadError } from '@kurisu/api';
+import { apiClient, CharacterUploadError } from '@amadeus/api';
 import {
   BACKGROUNDS,
   FRAMINGS,
@@ -89,8 +89,8 @@ import {
   type VrmClipRef,
   type VrmEmotion,
   type VrmSettings,
-} from '@kurisu/models';
-import { useDebouncedAutosave } from '@kurisu/hooks';
+} from '@amadeus/models';
+import { useDebouncedAutosave } from '@amadeus/hooks';
 import { VrmPreview, type VrmPreviewHandle } from './VrmPreview';
 import {
   asUploadCode,

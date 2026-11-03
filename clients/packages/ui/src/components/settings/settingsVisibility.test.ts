@@ -6,7 +6,7 @@
  * to a host this build is not running on (#190).
  */
 import { describe, expect, it } from 'vitest';
-import { fakeBridge } from '@kurisu/platform/testing';
+import { fakeBridge } from '@amadeus/platform/testing';
 import { visibleSettingsItems } from './SettingsPage';
 
 const labels = (caps: Parameters<typeof visibleSettingsItems>[0]) =>
@@ -33,7 +33,7 @@ describe('which settings sections a host shows', () => {
   it('still shows everything the server owns', () => {
     const { capabilities } = fakeBridge();
 
-    for (const label of ['Account', 'Assistant', 'Personas', 'Skills', 'Kurisu Drive']) {
+    for (const label of ['Account', 'Assistant', 'Personas', 'Skills', 'Amadeus Drive']) {
       expect(labels(capabilities)).toContain(label);
     }
   });

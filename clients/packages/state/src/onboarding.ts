@@ -1,4 +1,4 @@
-import type { Assistant, AssistantUpdate, ModelsResponse, UserProfile } from '@kurisu/models';
+import type { Assistant, AssistantUpdate, ModelsResponse, UserProfile } from '@amadeus/models';
 
 /**
  * Onboarding a new account (#342): the model, and only the model (#376),

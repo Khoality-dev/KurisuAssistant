@@ -1,5 +1,5 @@
 /**
- * Streamed uploads and downloads for Kurisu Drive.
+ * Streamed uploads and downloads for Amadeus Drive.
  *
  * These run in the main process rather than the renderer for one reason: a drive
  * file can be gigabytes, and the renderer would have to hold the whole thing in
@@ -342,7 +342,7 @@ export function registerDriveTransferIPC(): void {
 
   ipcMain.handle('drive:pick-files', async () => {
     const result = await dialog.showOpenDialog({
-      title: 'Upload to Kurisu Drive',
+      title: 'Upload to Amadeus Drive',
       properties: ['openFile', 'multiSelections'],
     });
     if (result.canceled) return [];

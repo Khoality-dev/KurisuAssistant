@@ -20,6 +20,6 @@ local.properties
 .kotlin/
 
 # Firebase client config (#353): per deployment, written by release.yml from the
-# KURISU_GOOGLE_SERVICES_JSON secret. Never committed.
+# AMADEUS_GOOGLE_SERVICES_JSON secret. Never committed.
 /app/google-services.json
 google-services.json

@@ -21,11 +21,11 @@ describe('layoutStore: the character panel', () => {
   it('remembers that it is showing the moment it is shown or hidden', async () => {
     const { useLayoutStore } = await freshStore();
     useLayoutStore.getState().setCharacterVisible(true);
-    expect(localStorage.getItem('kurisu_character_visible')).toBe('true');
+    expect(localStorage.getItem('amadeus_character_visible')).toBe('true');
     expect((await freshStore()).useLayoutStore.getState().characterVisible).toBe(true);
 
     (await freshStore()).useLayoutStore.getState().setCharacterVisible(false);
-    expect(localStorage.getItem('kurisu_character_visible')).toBe('false');
+    expect(localStorage.getItem('amadeus_character_visible')).toBe('false');
     expect((await freshStore()).useLayoutStore.getState().characterVisible).toBe(false);
   });
 
@@ -33,12 +33,12 @@ describe('layoutStore: the character panel', () => {
     const { useLayoutStore } = await freshStore();
     useLayoutStore.getState().setCharacterPanelHeight(410);
     useLayoutStore.getState().persistWidths();
-    expect(localStorage.getItem('kurisu_character_panel_height')).toBe('410');
+    expect(localStorage.getItem('amadeus_character_panel_height')).toBe('410');
     expect((await freshStore()).useLayoutStore.getState().characterPanelHeight).toBe(410);
   });
 
   it('ignores a stored height that is not a number', async () => {
-    localStorage.setItem('kurisu_character_panel_height', 'tall');
+    localStorage.setItem('amadeus_character_panel_height', 'tall');
     const { useLayoutStore, CHARACTER_PANEL_DEFAULT_HEIGHT } = await freshStore();
     expect(useLayoutStore.getState().characterPanelHeight).toBe(CHARACTER_PANEL_DEFAULT_HEIGHT);
   });

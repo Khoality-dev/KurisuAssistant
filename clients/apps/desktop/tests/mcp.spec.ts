@@ -38,7 +38,7 @@ test.describe('tools & MCP', () => {
     await login(page);
     await openTools(page);
 
-    await page.locator('section').getByRole('button', { name: /Kurisu Drive/ }).click();
+    await page.locator('section').getByRole('button', { name: /Amadeus Drive/ }).click();
     const read = page.getByRole('button', { name: /drive_read/ });
     const write = page.getByRole('button', { name: /drive_write/ });
     await expect(read).toContainText('Reads');

@@ -10,8 +10,8 @@
  * (or from anything that can `postMessage`), and the golden fixtures under
  * `fixtures/` are the contract the Android JVM tests decode too.
  */
-import type { SpeechSegment, SpeechSync, VrmEmotion } from '@kurisu/models';
-import { parseCharacterConfig, VRM_EMOTIONS, type ParsedCharacterConfig } from '@kurisu/models';
+import type { SpeechSegment, SpeechSync, VrmEmotion } from '@amadeus/models';
+import { parseCharacterConfig, VRM_EMOTIONS, type ParsedCharacterConfig } from '@amadeus/models';
 
 export type HostMessage =
   | { t: 'config'; character: ParsedCharacterConfig | null; personaName: string | null }

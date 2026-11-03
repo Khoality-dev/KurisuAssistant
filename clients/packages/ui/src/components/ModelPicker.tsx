@@ -13,7 +13,7 @@ import {
   GetApp as GetAppIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
-import { apiClient, describeRequestFailure } from '@kurisu/api';
+import { apiClient, describeRequestFailure } from '@amadeus/api';
 
 interface ModelPickerProps {
   label: string;
